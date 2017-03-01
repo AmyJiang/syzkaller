@@ -633,6 +633,7 @@ static int do_sandbox_namespace(int executor_pid, bool enable_tun)
 }
 #endif
 
+
 #if defined(SYZ_EXECUTOR) || defined(SYZ_REPEAT)
 // One does not simply remove a directory.
 // There can be mounts, so we need to try to umount.

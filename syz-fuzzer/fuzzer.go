@@ -338,6 +338,7 @@ func main() {
 			a.Stats["exec minimize"] = execMinimize
 			execTotal += execMinimize
 			a.Stats["fuzzer new inputs"] = atomic.SwapUint64(&statNewInput, 0)
+			// TODO (fix stats here)
 			r := &PollRes{}
 			if err := manager.Call("Manager.Poll", a, r); err != nil {
 				panic(err)
@@ -581,10 +582,14 @@ var logMu sync.Mutex
 
 func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool) []ipc.CallInfo {
 	// intercept execute1 to execute one program under multiple rootdirs
+	// TODO: fix the stat (= total all * #rootdirs)
 	info := make([]ipc.CallInfo, len(p.Calls))
-	for _, rootDir := range rootDirs {
-		tmp := execute1_internal(pid, env, p, stat, needCover, rootDir)
-		for call, inf := range tmp {
+	dirStatus := make([][]uint32, len(rootDirs))
+	for i, rootDir := range rootDirs {
+		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, rootDir)
+		dirStatus[i] = dir_stats
+		fmt.Printf("[Execute1-NEW]: %v Status: %v\n", rootDir, dirStatus)
+		for call, inf := range calls_info {
 			info[call].Signal = append(info[call].Signal, inf.Signal...)
 			info[call].Cover = append(info[call].Cover, inf.Cover...)
 			info[call].Errnos = append(info[call].Errnos, inf.Errno)
@@ -593,10 +598,12 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool)
 			}
 		}
 	}
+
+	// TODO compare dirStatus here?
 	return info
 }
 
-func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, rootDir string) []ipc.CallInfo {
+func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, rootDir string) (info []ipc.CallInfo, dirStatus []uint32) {
 	if false {
 		// For debugging, this function must not be executed with locks held.
 		corpusMu.Lock()
@@ -640,12 +647,12 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	try := 0
 retry:
 	atomic.AddUint64(stat, 1)
-	output, info, failed, hanged, err := env.Exec(p, needCover, true, rootDir)
+	output, info, failed, hanged, err, dirStatus := env.Exec(p, needCover, true, rootDir)
 	if failed {
 		// BUG in output should be recognized by manager.
 		Logf(0, "BUG: executor-detected bug:\n%s", output)
 		// Don't return any cover so that the input is not added to corpus.
-		return nil
+		return nil, nil
 	}
 	if err != nil {
 		if _, ok := err.(ipc.ExecutorFailure); ok || try > 10 {
@@ -658,7 +665,7 @@ retry:
 		goto retry
 	}
 	Logf(2, "result failed=%v hanged=%v: %v\n", failed, hanged, string(output))
-	return info
+	return
 }
 
 func kmemleakInit() {

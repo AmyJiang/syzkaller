@@ -119,7 +119,7 @@ func main() {
 						Logf(0, "executing program %v:\n%s", pid, data)
 						logMu.Unlock()
 					}
-					output, info, failed, hanged, err := env.Exec(p, needCover, dedupCover, "./")
+					output, info, failed, hanged, err, _ := env.Exec(p, needCover, dedupCover, "./")
 					if atomic.LoadUint32(&shutdown) != 0 {
 						return false
 					}

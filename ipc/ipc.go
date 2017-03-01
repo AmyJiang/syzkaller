@@ -197,7 +197,7 @@ type CallInfo struct {
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
 // rootdir: rootdir under which the test execution runs
-func (env *Env) Exec(p *prog.Prog, cover, dedup bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error) {
+func (env *Env) Exec(p *prog.Prog, cover, dedup bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, dirStatus []uint32) {
 	if p != nil {
 		// Copy-in serialized program.
 		if err := p.SerializeForExec(env.In, env.pid); err != nil {
@@ -237,11 +237,12 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup bool, rootDir string) (output []
 	if env.flags&FlagSignal == 0 || p == nil {
 		return
 	}
-	info, err0 = env.readOutCoverage(p)
+	info, err0, dirStatus = env.readOutCoverage(p)
 	return
 }
 
-func (env *Env) readOutCoverage(p *prog.Prog) (info []CallInfo, err0 error) {
+
+func (env *Env) readOutCoverage(p *prog.Prog) (info []CallInfo, err0 error, dirStatus []uint32) {
 	out := ((*[1 << 28]uint32)(unsafe.Pointer(&env.Out[0])))[:len(env.Out)/int(unsafe.Sizeof(uint32(0)))]
 	readOut := func(v *uint32) bool {
 		if len(out) == 0 {
@@ -310,10 +311,25 @@ func (env *Env) readOutCoverage(p *prog.Prog) (info []CallInfo, err0 error) {
 		info[callIndex].Cover = out[:coverSize:coverSize]
 		out = out[coverSize:]
 	}
+
+    // read out dir status (hash?)
+    var dirStatusSize uint32
+    if !readOut(&dirStatusSize) {
+        err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
+        return
+    }
+    fmt.Printf("[OutputDirStatus]: size = %v\n", dirStatusSize)
+    if dirStatusSize > uint32(len(out)) {
+        err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
+        return
+    }
+    dirStatus = out[:dirStatusSize:dirStatusSize]
+    out = out[dirStatusSize:]
 	return
 }
 
 func createMapping(size int) (f *os.File, mem []byte, err error) {
+    // TODO (check if directory here is oK?)
 	f, err = ioutil.TempFile("./", "syzkaller-shm")
 	if err != nil {
 		err = fmt.Errorf("failed to create temp file: %v", err)

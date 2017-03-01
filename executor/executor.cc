@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <linux/futex.h>
 #include <linux/reboot.h>
+#include <map>
 #include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -16,6 +17,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/prctl.h>
@@ -32,6 +34,8 @@
 
 #define SYZ_EXECUTOR
 #include "common.h"
+
+#include "dir_status.h"
 
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long long)
 #define KCOV_INIT_TABLE _IOR('c', 2, unsigned long long)
@@ -134,6 +138,7 @@ void cover_reset(thread_t* th);
 uint64_t cover_read(thread_t* th);
 static uint32_t hash(uint32_t a);
 static bool dedup(uint32_t sig);
+static void record_dir_status();
 
 int main(int argc, char** argv)
 {
@@ -302,6 +307,16 @@ void loop()
 	}
 }
 
+
+static void record_dir_status() {
+    debug("[RecordStatus]: output_pos = %p\n", output_pos);
+    std::map<std::string, std::string> file_status;
+    update_dir_status(".", file_status);
+    // TODO (serialize map? protobuffer?)
+    write_output(1); // size
+    write_output(6);
+}
+
 void execute_one()
 {
 retry:
@@ -411,6 +426,9 @@ retry:
 			handle_completion(th);
 		}
 	}
+
+
+    record_dir_status();
 
 	if (flag_collide && !collide) {
 		debug("enabling collider\n");
