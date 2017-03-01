@@ -54,8 +54,8 @@ type Config struct {
 	// "namespace": create a new namespace for fuzzer using CLONE_NEWNS/CLONE_NEWNET/CLONE_NEWPID/etc,
 	//	requires building kernel with CONFIG_NAMESPACES, CONFIG_UTS_NS, CONFIG_USER_NS, CONFIG_PID_NS and CONFIG_NET_NS.
 
-    Filesystems []string // a set of file systems under test
-	Machine_Type string // GCE machine type (e.g. "n1-highcpu-2")
+	Filesystems  []string // a set of file systems under test
+	Machine_Type string   // GCE machine type (e.g. "n1-highcpu-2")
 
 	Cover     bool // use kcov coverage (default: true)
 	Leak      bool // do memory leak checking
@@ -324,7 +324,7 @@ func CreateVMConfig(cfg *Config, index int) (*vm.Config, error) {
 		Mem:         cfg.Mem,
 		Debug:       cfg.Debug,
 		MachineType: cfg.Machine_Type,
-        Filesystems: cfg.Filesystems,
+		Filesystems: cfg.Filesystems,
 	}
 	if len(cfg.Devices) != 0 {
 		vmCfg.Device = cfg.Devices[index]
@@ -364,7 +364,7 @@ func checkUnknownFields(data []byte) (string, error) {
 		"Cover",
 		"Reproduce",
 		"Sandbox",
-        "Filesystems",
+		"Filesystems",
 		"Leak",
 		"Enable_Syscalls",
 		"Disable_Syscalls",

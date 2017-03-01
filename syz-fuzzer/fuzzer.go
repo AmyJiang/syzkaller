@@ -43,7 +43,7 @@ var (
 	flagLeak     = flag.Bool("leak", false, "detect memory leaks")
 	flagOutput   = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
 	flagPprof    = flag.String("pprof", "", "address to serve pprof profiles")
-    flagRootdirs = flag.String("rootdirs", "", "colon-separated list of rootdirs")
+	flagRootdirs = flag.String("rootdirs", "", "colon-separated list of rootdirs")
 )
 
 const (
@@ -90,7 +90,7 @@ var (
 
 	allTriaged uint32
 	noCover    bool
-    rootDirs   []string
+	rootDirs   []string
 )
 
 func main() {
@@ -122,10 +122,10 @@ func main() {
 		runtime.MemProfileRate = 0
 	}
 
-    if *flagRootdirs != "" {
-        rootDirs = strings.Split(*flagRootdirs, ":")
-        fmt.Fprintf(os.Stdout, "[Fuzzer-rootdirs]: %q\n", rootDirs)
-    }
+	if *flagRootdirs != "" {
+		rootDirs = strings.Split(*flagRootdirs, ":")
+		fmt.Fprintf(os.Stdout, "[Fuzzer-rootdirs]: %q\n", rootDirs)
+	}
 
 	corpusSignal = make(map[uint32]struct{})
 	maxSignal = make(map[uint32]struct{})
@@ -580,22 +580,21 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 var logMu sync.Mutex
 
 func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool) []ipc.CallInfo {
-    // intercept execute1 to execute one program under multiple rootdirs
-    info := make([]ipc.CallInfo, len(p.Calls))
-    for _, rootDir := range rootDirs {
-        tmp := execute1_internal(pid, env, p, stat, needCover, rootDir)
-        for call, inf := range tmp {
-            info[call].Signal = append(info[call].Signal, inf.Signal...)
-            info[call].Cover = append(info[call].Cover, inf.Cover...)
-            info[call].Errnos = append(info[call].Errnos, inf.Errno)
-            if (inf.Errno != 0) {
-                info[call].Errno = inf.Errno; // TODO
-            }
-        }
-    }
-    return info
+	// intercept execute1 to execute one program under multiple rootdirs
+	info := make([]ipc.CallInfo, len(p.Calls))
+	for _, rootDir := range rootDirs {
+		tmp := execute1_internal(pid, env, p, stat, needCover, rootDir)
+		for call, inf := range tmp {
+			info[call].Signal = append(info[call].Signal, inf.Signal...)
+			info[call].Cover = append(info[call].Cover, inf.Cover...)
+			info[call].Errnos = append(info[call].Errnos, inf.Errno)
+			if inf.Errno != 0 {
+				info[call].Errno = inf.Errno // TODO
+			}
+		}
+	}
+	return info
 }
-
 
 func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, rootDir string) []ipc.CallInfo {
 	if false {

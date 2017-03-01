@@ -21,12 +21,11 @@ import (
 	"github.com/google/syzkaller/prog"
 )
 
-
 type Env struct {
 	In  []byte
 	Out []byte
 
-    cmds    map[string]*command
+	cmds    map[string]*command
 	cmd     *command
 	inFile  *os.File
 	outFile *os.File
@@ -165,11 +164,11 @@ func MakeEnv(bin string, timeout time.Duration, flags uint64, pid int) (*Env, er
 }
 
 func (env *Env) Close() error {
-    for _, cmd := range env.cmds {
-        if cmd != nil {
-		    cmd.close()
-	    }
-    }
+	for _, cmd := range env.cmds {
+		if cmd != nil {
+			cmd.close()
+		}
+	}
 
 	err1 := closeMapping(env.inFile, env.In)
 	err2 := closeMapping(env.outFile, env.Out)
@@ -187,8 +186,8 @@ type CallInfo struct {
 	Signal []uint32 // feedback signal, filled if FlagSignal is set
 	Cover  []uint32 // per-call coverage, filled if FlagSignal is set and cover == true,
 	//if dedup == false, then cov effectively contains a trace, otherwise duplicates are removed
-	Errno int // call errno (0 if the call was successful)
-    Errnos []int // call errnos in different file systems
+	Errno  int   // call errno (0 if the call was successful)
+	Errnos []int // call errnos in different file systems
 }
 
 // Exec starts executor binary to execute program p and returns information about the execution:
@@ -215,13 +214,13 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup bool, rootDir string) (output []
 	}
 
 	atomic.AddUint64(&env.StatExecs, 1)
-    if env.cmds == nil {
-        env.cmds = make(map[string]*command)
-    }
-    if cmd, ok := env.cmds[rootDir]; !ok || cmd == nil {
-		if (cmd == nil) {
-            atomic.AddUint64(&env.StatRestarts, 1)
-        }
+	if env.cmds == nil {
+		env.cmds = make(map[string]*command)
+	}
+	if cmd, ok := env.cmds[rootDir]; !ok || cmd == nil {
+		if cmd == nil {
+			atomic.AddUint64(&env.StatRestarts, 1)
+		}
 		env.cmds[rootDir], err0 = makeCommand(env.pid, env.bin, env.timeout, env.flags, env.inFile, env.outFile, rootDir)
 		if err0 != nil {
 			return
@@ -375,7 +374,7 @@ func makeCommand(pid int, bin []string, timeout time.Duration, flags uint64, inF
 	dir, err := ioutil.TempDir(rootDir, "syzkaller-testdir")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %v", err)
-    }
+	}
 
 	c := &command{
 		pid:     pid,
