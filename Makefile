@@ -39,6 +39,9 @@ mutate:
 prog2c:
 	go build -o ./bin/syz-prog2c github.com/google/syzkaller/tools/syz-prog2c
 
+db:
+	go build -o ./bin/syz-db github.com/google/syzkaller/tools/syz-db
+
 stress:
 	go build -o ./bin/syz-stress github.com/google/syzkaller/tools/syz-stress
 

@@ -21,10 +21,12 @@ import (
 	"github.com/google/syzkaller/prog"
 )
 
+
 type Env struct {
 	In  []byte
 	Out []byte
 
+    cmds    map[string]*command
 	cmd     *command
 	inFile  *os.File
 	outFile *os.File
@@ -163,9 +165,12 @@ func MakeEnv(bin string, timeout time.Duration, flags uint64, pid int) (*Env, er
 }
 
 func (env *Env) Close() error {
-	if env.cmd != nil {
-		env.cmd.close()
-	}
+    for _, cmd := range env.cmds {
+        if cmd != nil {
+		    cmd.close()
+	    }
+    }
+
 	err1 := closeMapping(env.inFile, env.In)
 	err2 := closeMapping(env.outFile, env.Out)
 	switch {
@@ -183,6 +188,7 @@ type CallInfo struct {
 	Cover  []uint32 // per-call coverage, filled if FlagSignal is set and cover == true,
 	//if dedup == false, then cov effectively contains a trace, otherwise duplicates are removed
 	Errno int // call errno (0 if the call was successful)
+    Errnos []int // call errnos in different file systems
 }
 
 // Exec starts executor binary to execute program p and returns information about the execution:
@@ -191,7 +197,8 @@ type CallInfo struct {
 // failed: true if executor has detected a kernel bug
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
-func (env *Env) Exec(p *prog.Prog, cover, dedup bool) (output []byte, info []CallInfo, failed, hanged bool, err0 error) {
+// rootdir: rootdir under which the test execution runs
+func (env *Env) Exec(p *prog.Prog, cover, dedup bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error) {
 	if p != nil {
 		// Copy-in serialized program.
 		if err := p.SerializeForExec(env.In, env.pid); err != nil {
@@ -208,18 +215,23 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup bool) (output []byte, info []Cal
 	}
 
 	atomic.AddUint64(&env.StatExecs, 1)
-	if env.cmd == nil {
-		atomic.AddUint64(&env.StatRestarts, 1)
-		env.cmd, err0 = makeCommand(env.pid, env.bin, env.timeout, env.flags, env.inFile, env.outFile)
+    if env.cmds == nil {
+        env.cmds = make(map[string]*command)
+    }
+    if cmd, ok := env.cmds[rootDir]; !ok || cmd == nil {
+		if (cmd == nil) {
+            atomic.AddUint64(&env.StatRestarts, 1)
+        }
+		env.cmds[rootDir], err0 = makeCommand(env.pid, env.bin, env.timeout, env.flags, env.inFile, env.outFile, rootDir)
 		if err0 != nil {
 			return
 		}
 	}
 	var restart bool
-	output, failed, hanged, restart, err0 = env.cmd.exec(cover, dedup)
+	output, failed, hanged, restart, err0 = env.cmds[rootDir].exec(cover, dedup)
 	if err0 != nil || restart {
-		env.cmd.close()
-		env.cmd = nil
+		env.cmds[rootDir].close()
+		env.cmds[rootDir] = nil
 		return
 	}
 
@@ -359,11 +371,11 @@ type command struct {
 	outwp    *os.File
 }
 
-func makeCommand(pid int, bin []string, timeout time.Duration, flags uint64, inFile *os.File, outFile *os.File) (*command, error) {
-	dir, err := ioutil.TempDir("./", "syzkaller-testdir")
+func makeCommand(pid int, bin []string, timeout time.Duration, flags uint64, inFile *os.File, outFile *os.File, rootDir string) (*command, error) {
+	dir, err := ioutil.TempDir(rootDir, "syzkaller-testdir")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %v", err)
-	}
+    }
 
 	c := &command{
 		pid:     pid,

@@ -49,6 +49,7 @@ type Config struct {
 	Executor    string
 	Device      string
 	MachineType string
+    Filesystems []string
 	Cpu         int
 	Mem         int
 	Debug       bool
@@ -67,6 +68,7 @@ var Shutdown = make(chan struct{})
 
 // Create creates and boots a new VM instance.
 func Create(typ string, cfg *Config) (Instance, error) {
+    // NEW Filesystem dirs here?
 	ctor := ctors[typ]
 	if ctor == nil {
 		return nil, fmt.Errorf("unknown instance type '%v'", typ)
