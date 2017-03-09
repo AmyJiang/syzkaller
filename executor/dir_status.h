@@ -2,13 +2,49 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <openssl/sha.h>
 
+std::string format_time(struct stat& st) {
+    // TODO (maybe not hash?)
+    unsigned long atime, mtime, ctime;
+    atime = (st.st_atim.tv_nsec > 0 ? st.st_atim.tv_nsec : st.st_atim.tv_sec);
+    mtime = (st.st_mtim.tv_nsec > 0 ? st.st_mtim.tv_nsec : st.st_mtim.tv_sec);
+    ctime = (st.st_ctim.tv_nsec > 0 ? st.st_ctim.tv_nsec : st.st_ctim.tv_sec);
+    std::string tmp;
+    if (atime >= mtime && atime >= ctime) {
+        if (mtime >= ctime) {
+            tmp = "amc";
+        } else {
+            tmp = "acm";
+        }
+    } else if (mtime >= ctime) {
+        if (atime >= ctime) {
+            tmp = "mac";
+        } else {
+            tmp = "mca";
+        }
+    } else {
+        if (atime >= mtime) {
+            tmp = "cam";
+        } else {
+            tmp = "cma";
+        }
+    }
+    return tmp;
+}
+
 std::string get_status(struct stat& st) {
 // TODO (get status)
-	std::string status_str = "test";
-	return status_str;
+    std::stringstream status_str;
+    status_str << (unsigned long) st.st_mode << ","     // file type + permission
+               << (long) st.st_nlink << ","             // link count
+               << (long) st.st_uid << "," << (long) st.st_gid << "," // ownership
+               << (long long) st.st_size << ","         // file size
+              // << (long long) st.st_blocks << ","       // blocks allocated
+               << format_time(st);                       // time (last status change, last file access, last file modification)
+	return status_str.str();
 }
 
 void update_dir_status(const char* dir, std::map<std::string, std::string>& file_status)
