@@ -50,6 +50,7 @@ type Manager struct {
 	crashdir     string
 	port         int
 	corpusDB     *db.DB
+	diffDB       *db.DB
 	startTime    time.Time
 	firstConnect time.Time
 	lastPrioCalc time.Time
@@ -197,6 +198,13 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 	for i := range shuffle {
 		j := i + rand.Intn(len(shuffle)-i)
 		shuffle[i], shuffle[j] = shuffle[j], shuffle[i]
+	}
+
+	Logf(0, "opening diff database...")
+	diffFilename := filepath.Join(cfg.Workdir, "diff.db")
+	mgr.diffDB, err = db.Open(diffFilename)
+	if err != nil {
+		Fatalf("failed to open diff database: %v", err)
 	}
 
 	// Create HTTP server.
@@ -740,6 +748,23 @@ func (mgr *Manager) Check(a *CheckArgs, r *int) error {
 	}
 	mgr.vmChecked = true
 	mgr.enabledCalls = a.Calls
+	return nil
+}
+
+func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
+	Logf(0, "received new diff from %v", a.Name)
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	f := mgr.fuzzers[a.Name]
+	if f == nil {
+		Fatalf("fuzzer %v is not connected", a.Name)
+	}
+
+	sig := hash.String(a.Prog)
+	mgr.diffDB.Save(sig, a.Prog, 0)
+	if err := mgr.diffDB.Flush(); err != nil {
+		Logf(0, "failed to save diff database: %v", err)
+	}
 	return nil
 }
 

@@ -54,6 +54,12 @@ type PollRes struct {
 	MaxSignal  []uint32
 }
 
+type NewDiffArgs struct {
+	Name   string
+	Prog   []byte
+	Status [][]uint32
+}
+
 type HubConnectArgs struct {
 	Name   string
 	Key    string

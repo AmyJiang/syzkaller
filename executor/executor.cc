@@ -82,6 +82,7 @@ bool flag_enable_tun;
 
 bool flag_collect_cover;
 bool flag_dedup_cover;
+bool flag_collect_dir_status;
 
 __attribute__((aligned(64 << 10))) char input_data[kMaxInput];
 uint32_t* output_data;
@@ -232,6 +233,7 @@ void loop()
 			fail("control pipe read failed");
 		flag_collect_cover = flags & (1 << 0);
 		flag_dedup_cover = flags & (1 << 1);
+        flag_collect_dir_status = flags & (1 << 2);
 
 		int pid = fork();
 		if (pid < 0)
@@ -309,16 +311,21 @@ void loop()
 
 
 static void record_dir_status() {
-    debug("[RecordStatus]: output_pos = %p\n", output_pos);
     std::map<std::string, std::string> file_status;
     update_dir_status(".", file_status);
-    // TODO (serialize map? protobuffer?)
-    write_output(1); // size
-    write_output(6);
+
+	unsigned char hash[SHA_DIGEST_LENGTH];
+	hash_dir_status(file_status, hash);
+
+	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t);
+	write_output((uint32_t)size);
+	for (uint32_t i = 0; i < size; i++) {
+	    write_output((uint32_t)((uint32_t*)hash)[i]);
+	}
 }
 
-void execute_one()
-{
+
+void execute_one() {
 retry:
 	uint64_t* input_pos = (uint64_t*)&input_data[0];
 	read_input(&input_pos); // flags
@@ -427,8 +434,10 @@ retry:
 		}
 	}
 
-
-    record_dir_status();
+    if (!collide && flag_collect_dir_status) {
+        debug("collecting directory status\n");
+        record_dir_status();
+    }
 
 	if (flag_collide && !collide) {
 		debug("enabling collider\n");

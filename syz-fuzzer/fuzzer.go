@@ -87,6 +87,7 @@ var (
 	statExecTriage    uint64
 	statExecMinimize  uint64
 	statNewInput      uint64
+	statNewDiff       uint64
 
 	allTriaged uint32
 	noCover    bool
@@ -322,6 +323,7 @@ func main() {
 				a.Stats["exec total"] += atomic.SwapUint64(&env.StatExecs, 0)
 				a.Stats["executor restarts"] += atomic.SwapUint64(&env.StatRestarts, 0)
 			}
+			// TODO: Fix stats here
 			execGen := atomic.SwapUint64(&statExecGen, 0)
 			a.Stats["exec gen"] = execGen
 			execTotal += execGen
@@ -338,7 +340,7 @@ func main() {
 			a.Stats["exec minimize"] = execMinimize
 			execTotal += execMinimize
 			a.Stats["fuzzer new inputs"] = atomic.SwapUint64(&statNewInput, 0)
-			// TODO (fix stats here)
+			a.Stats["fuzzer new diffs"] = atomic.SwapUint64(&statNewDiff, 0)
 			r := &PollRes{}
 			if err := manager.Call("Manager.Poll", a, r); err != nil {
 				panic(err)
@@ -467,7 +469,7 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	if inp.minimized {
 		// We just need to get input coverage.
 		for i := 0; i < 3; i++ {
-			info := execute1(pid, env, inp.p, &statExecTriage, true)
+			info := execute1(pid, env, inp.p, &statExecTriage, true, false)
 			if len(info) == 0 || len(info[inp.call].Cover) == 0 {
 				continue // The call was not executed. Happens sometimes.
 			}
@@ -478,7 +480,7 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 		// We need to compute input coverage and non-flaky signal for minimization.
 		notexecuted := false
 		for i := 0; i < 3; i++ {
-			info := execute1(pid, env, inp.p, &statExecTriage, true)
+			info := execute1(pid, env, inp.p, &statExecTriage, true, false)
 			if len(info) == 0 || len(info[inp.call].Signal) == 0 {
 				// The call was not executed. Happens sometimes.
 				if notexecuted {
@@ -544,7 +546,7 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 }
 
 func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidate bool, stat *uint64) []ipc.CallInfo {
-	info := execute1(pid, env, p, stat, needCover)
+	info := execute1(pid, env, p, stat, needCover, true)
 	signalMu.RLock()
 	defer signalMu.RUnlock()
 
@@ -580,15 +582,20 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 
 var logMu sync.Mutex
 
-func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool) []ipc.CallInfo {
+func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool) []ipc.CallInfo {
 	// intercept execute1 to execute one program under multiple rootdirs
+	// TODO a flag to control if to compare two fs
+	// only needed at the first time (as newly generated program, or candidate
 	// TODO: fix the stat (= total all * #rootdirs)
 	info := make([]ipc.CallInfo, len(p.Calls))
 	dirStatus := make([][]uint32, len(rootDirs))
 	for i, rootDir := range rootDirs {
-		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, rootDir)
-		dirStatus[i] = dir_stats
-		fmt.Printf("[Execute1-NEW]: %v Status: %v\n", rootDir, dirStatus)
+		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, needDirStatus, rootDir)
+
+		if needDirStatus {
+			dirStatus[i] = append(dirStatus[i], dir_stats...)
+		}
+
 		for call, inf := range calls_info {
 			info[call].Signal = append(info[call].Signal, inf.Signal...)
 			info[call].Cover = append(info[call].Cover, inf.Cover...)
@@ -599,11 +606,36 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool)
 		}
 	}
 
-	// TODO compare dirStatus here?
+	if needDirStatus {
+		// compare two hash
+		has_diff := false
+		for i := 1; i < len(dirStatus) && !has_diff; i += 1 {
+			for j, v1 := range dirStatus[i-1] {
+				if dirStatus[i][j] != v1 {
+					has_diff = true
+					break
+				}
+			}
+		}
+		if has_diff {
+			atomic.AddUint64(&statNewDiff, 1)
+			Logf(2, "reporting new diff from %v: status = %v\n", *flagName, dirStatus)
+			a := &NewDiffArgs{
+				Name:   *flagName,
+				Prog:   p.Serialize(),
+				Status: dirStatus,
+			}
+
+			if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
+				panic(err)
+			}
+		}
+	}
+
 	return info
 }
 
-func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, rootDir string) (info []ipc.CallInfo, dirStatus []uint32) {
+func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool, rootDir string) (info []ipc.CallInfo, dirStatus []uint32) {
 	if false {
 		// For debugging, this function must not be executed with locks held.
 		corpusMu.Lock()
@@ -647,7 +679,7 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	try := 0
 retry:
 	atomic.AddUint64(stat, 1)
-	output, info, failed, hanged, err, dirStatus := env.Exec(p, needCover, true, rootDir)
+	output, info, failed, hanged, err, dirStatus := env.Exec(p, needCover, true, needDirStatus, rootDir)
 	if failed {
 		// BUG in output should be recognized by manager.
 		Logf(0, "BUG: executor-detected bug:\n%s", output)
