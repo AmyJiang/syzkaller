@@ -28,6 +28,7 @@ type Options struct {
 	Procs    int
 	Sandbox  string
 	Repro    bool // generate code for use with repro package
+	FsDebug  bool
 }
 
 func Write(p *prog.Prog, opts Options) ([]byte, error) {
@@ -288,6 +289,9 @@ func preprocessCommonHeader(opts Options, handled map[string]int) (string, error
 	}
 	// TODO: need to know target arch + do cross-compilation
 	defines = append(defines, "__x86_64__")
+	if opts.FsDebug {
+		defines = append(defines, "SYZ_FS_DEBUG")
+	}
 
 	cmd := exec.Command("cpp", "-nostdinc", "-undef", "-fdirectives-only", "-dDI", "-E", "-P", "-")
 	for _, def := range defines {

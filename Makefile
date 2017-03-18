@@ -13,7 +13,7 @@ all:
 	go install ./syz-manager ./syz-fuzzer
 	$(MAKE) manager
 	$(MAKE) fuzzer
-	$(MAKE) execprog
+#	$(MAKE) execprog
 	$(MAKE) executor
 
 all-tools: execprog mutate prog2c stress repro upgrade

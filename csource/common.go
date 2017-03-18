@@ -44,6 +44,17 @@ var commonHeader = `
 #include <string.h>
 #include <unistd.h>
 
+#include <map>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <openssl/sha.h>
+
+
+
 const int kFailStatus = 67;
 const int kErrorStatus = 68;
 const int kRetryStatus = 69;
@@ -70,7 +81,7 @@ __attribute__((noreturn)) void fail(const char* msg, ...)
 	vfprintf(stderr, msg, args);
 	va_end(args);
 	fprintf(stderr, " (errno %d)\n", e);
-	doexit(e == ENOMEM ? kRetryStatus : kFailStatus);
+	doexit((e == ENOMEM || e == EAGAIN) ? kRetryStatus : kFailStatus);
 }
 
 #if defined(SYZ_EXECUTOR)
@@ -110,6 +121,7 @@ void debug(const char* msg, ...)
 	va_end(args);
 	fflush(stdout);
 }
+
 
 __thread int skip_segv;
 __thread jmp_buf segv_env;
@@ -1359,6 +1371,128 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 	}
 }
 
+#if defined(SYZ_EXECUTOR)
+bool less_time(struct timespec& t1, struct timespec& t2) {
+    if (t1.tv_sec <= t2.tv_sec) {
+        return true;
+    }
+    return false;
+}
+
+std::string format_time(struct stat& st) {
+    struct timespec &atime = st.st_atim, &mtime = st.st_mtim, &ctime = st.st_ctim;
+    std::string tmp;
+    if (less_time(atime, mtime) && less_time(atime, ctime)) {
+        if (less_time(mtime, ctime)) {
+            tmp = "amc";
+        } else {
+            tmp = "acm";
+        }
+    } else if (less_time(mtime, ctime)) {
+        if (less_time(atime, ctime)) {
+            tmp = "mac";
+        } else {
+            tmp = "mca";
+        }
+    } else {
+        if (less_time(atime, mtime)) {
+            tmp = "cam";
+        } else {
+            tmp = "cma";
+        }
+    }
+    return tmp;
+}
+
+std::string get_status(struct stat& st) {
+    std::stringstream status_str;
+    status_str << (unsigned long) st.st_mode << ","
+               << (long) st.st_nlink << ","
+               << (long) st.st_uid << "," << (long) st.st_gid << ",";
+    status_str << format_time(st) << ",";
+    if (S_ISREG(st.st_mode)) {
+        status_str << (long long) st.st_size << ",";
+    }
+
+	return status_str.str();
+}
+
+
+void update_dir_status(const char* dir, std::map<std::string, std::string>& file_status)
+{
+    DIR *dp;
+    struct dirent *ep;
+	dp = opendir(dir);
+	if (dp == NULL) {
+		debug("update_dir_status: opendir(%s) failed", dir);
+        return;
+	}
+	while ((ep = readdir(dp))) {
+		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
+			continue;
+        std::string filename = "";
+        filename += dir;
+        filename += "/";
+        filename += ep->d_name;
+		struct stat st;
+		if (lstat(filename.c_str(), &st))
+			exitf("lstat(%s) failed", filename);
+		if (S_ISDIR(st.st_mode)) {
+            update_dir_status(filename.c_str(), file_status);
+		}
+        file_status[filename] = get_status(st);
+
+        struct timespec &atime = st.st_atim, &mtime = st.st_mtim, &ctime = st.st_ctim;
+        debug("[File (%s)]: %ld.%lld, %ld.%lld, %ld.%lld\n", filename.c_str(),
+              (long) atime.tv_sec, (long long) atime.tv_nsec, (long) mtime.tv_sec, (long long) mtime.tv_nsec,
+              (long) ctime.tv_sec, (long long) ctime.tv_nsec);
+
+	}
+	closedir(dp);
+}
+#endif
+
+
+
+#if defined(SYZ_FS_DEBUG)
+void debug_dir_status(const char* dir)
+{
+    DIR *dp;
+    struct dirent *ep;
+	dp = opendir(dir);
+	if (dp == NULL) {
+        std::cerr << "debug_dir_status: opendir failed: " << dir << std::endl;
+        return;
+	}
+	while ((ep = readdir(dp))) {
+		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
+			continue;
+        std::string filename = "";
+        filename += dir;
+        filename += "/";
+        filename += ep->d_name;
+		struct stat st;
+		if (lstat(filename.c_str(), &st))
+            std::cerr << "lstat failed: " << filename << std::endl;
+		if (S_ISDIR(st.st_mode)) {
+            debug_dir_status(filename.c_str());
+		}
+        std::cout << "File " << filename << ": ";
+        struct timespec &atime = st.st_atim, &mtime = st.st_mtim, &ctime = st.st_ctim;
+        std::cout  << (unsigned long) st.st_mode << ","
+               << (long) st.st_nlink << ","
+               << (long) st.st_uid << "," << (long) st.st_gid << ","
+               << (long long) st.st_size << ","
+               << (long) atime.tv_sec << "." << (long long) atime.tv_nsec << ","
+               << (long) mtime.tv_sec << "." << (long long) mtime.tv_nsec << ","
+               << (long) ctime.tv_sec << "." << (long long) ctime.tv_nsec
+               << std::endl;
+	}
+	closedir(dp);
+}
+#endif
+
+
 static void setup_main_process()
 {
 	struct sigaction sa;
@@ -1414,6 +1548,11 @@ static int do_sandbox_none(int executor_pid, bool enable_tun)
 #endif
 
 	loop();
+
+#if defined(SYZ_FS_DEBUG)
+    debug_dir_status(".");
+#endif
+
 	doexit(1);
 }
 #endif

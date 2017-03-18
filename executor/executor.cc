@@ -35,8 +35,6 @@
 #define SYZ_EXECUTOR
 #include "common.h"
 
-#include "dir_status.h"
-
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long long)
 #define KCOV_INIT_TABLE _IOR('c', 2, unsigned long long)
 #define KCOV_ENABLE _IO('c', 100)
@@ -140,6 +138,7 @@ uint64_t cover_read(thread_t* th);
 static uint32_t hash(uint32_t a);
 static bool dedup(uint32_t sig);
 static void record_dir_status();
+static void hash_dir_status(const std::map<std::string, std::string>& file_status, unsigned char* hash);
 
 int main(int argc, char** argv)
 {
@@ -309,6 +308,16 @@ void loop()
 	}
 }
 
+
+void hash_dir_status(const std::map<std::string, std::string>& file_status, unsigned char* hash) {
+    std::stringstream ss;
+    for (auto it = file_status.begin(); it != file_status.end(); it++) {
+        ss << it->first << ":" << it->second << ";";
+    }
+    std::string status_str = ss.str();
+    debug("[HashDirStatus], status_str: %s\n", status_str.c_str());
+    SHA1((unsigned char*)status_str.c_str(), status_str.length(), hash);
+}
 
 static void record_dir_status() {
     std::map<std::string, std::string> file_status;

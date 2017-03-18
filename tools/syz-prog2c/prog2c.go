@@ -20,6 +20,7 @@ var (
 	flagProcs    = flag.Int("procs", 4, "number of parallel processes")
 	flagSandbox  = flag.String("sandbox", "none", "sandbox to use (none, setuid, namespace)")
 	flagProg     = flag.String("prog", "", "file with program to convert (required)")
+	flagFsDebug  = flag.Bool("fsdebug", true, "debug filesystem status")
 )
 
 func main() {
@@ -45,6 +46,7 @@ func main() {
 		Procs:    *flagProcs,
 		Sandbox:  *flagSandbox,
 		Repro:    false,
+		FsDebug:  *flagFsDebug,
 	}
 	src, err := csource.Write(p, opts)
 	if err != nil {
