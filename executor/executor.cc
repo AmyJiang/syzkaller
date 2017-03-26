@@ -17,8 +17,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string>
 #include <string.h>
+#include <string>
 #include <sys/ioctl.h>
 #include <sys/prctl.h>
 #include <sys/reboot.h>
@@ -33,6 +33,7 @@
 #include "syscalls.h"
 
 #define SYZ_EXECUTOR
+#define SYZ_FS_DEBUG
 #include "common.h"
 
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long long)
@@ -232,7 +233,7 @@ void loop()
 			fail("control pipe read failed");
 		flag_collect_cover = flags & (1 << 0);
 		flag_dedup_cover = flags & (1 << 1);
-        flag_collect_dir_status = flags & (1 << 2);
+		flag_collect_dir_status = flags & (1 << 2);
 
 		int pid = fork();
 		if (pid < 0)
@@ -302,26 +303,31 @@ void loop()
 			fail("child failed");
 		if (status == kErrorStatus)
 			error("child errored");
-		remove_dir(cwdbuf);
+		char cur[256];
+		getcwd(cur, 255);
+		debug("cwdbuf: %s\%s\n", cur, cwdbuf);
+		debug_dir_status(cwdbuf);
+		//remove_dir(cwdbuf);
 		if (write(kOutPipeFd, &tmp, 1) != 1)
 			fail("control pipe write failed");
 	}
 }
 
-
-void hash_dir_status(const std::map<std::string, std::string>& file_status, unsigned char* hash) {
-    std::stringstream ss;
-    for (auto it = file_status.begin(); it != file_status.end(); it++) {
-        ss << it->first << ":" << it->second << ";";
-    }
-    std::string status_str = ss.str();
-    debug("[HashDirStatus], status_str: %s\n", status_str.c_str());
-    SHA1((unsigned char*)status_str.c_str(), status_str.length(), hash);
+void hash_dir_status(const std::map<std::string, std::string>& file_status, unsigned char* hash)
+{
+	std::stringstream ss;
+	for (auto it = file_status.begin(); it != file_status.end(); it++) {
+		ss << it->first << ":" << it->second << ";";
+	}
+	std::string status_str = ss.str();
+	debug("[HashDirStatus], status_str: %s\n", status_str.c_str());
+	SHA1((unsigned char*)status_str.c_str(), status_str.length(), hash);
 }
 
-static void record_dir_status() {
-    std::map<std::string, std::string> file_status;
-    update_dir_status(".", file_status);
+static void record_dir_status()
+{
+	std::map<std::string, std::string> file_status;
+	update_dir_status(".", file_status);
 
 	unsigned char hash[SHA_DIGEST_LENGTH];
 	hash_dir_status(file_status, hash);
@@ -329,12 +335,12 @@ static void record_dir_status() {
 	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t);
 	write_output((uint32_t)size);
 	for (uint32_t i = 0; i < size; i++) {
-	    write_output((uint32_t)((uint32_t*)hash)[i]);
+		write_output((uint32_t)((uint32_t*)hash)[i]);
 	}
 }
 
-
-void execute_one() {
+void execute_one()
+{
 retry:
 	uint64_t* input_pos = (uint64_t*)&input_data[0];
 	read_input(&input_pos); // flags
@@ -443,10 +449,10 @@ retry:
 		}
 	}
 
-    if (!collide && flag_collect_dir_status) {
-        debug("collecting directory status\n");
-        record_dir_status();
-    }
+	if (!collide && flag_collect_dir_status) {
+		debug("collecting directory status\n");
+		record_dir_status();
+	}
 
 	if (flag_collide && !collide) {
 		debug("enabling collider\n");

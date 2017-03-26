@@ -52,8 +52,8 @@ const (
 )
 
 var (
-	flagThreaded = flag.Bool("threaded", true, "use threaded mode in executor")
-	flagCollide  = flag.Bool("collide", true, "collide syscalls to provoke data races")
+	flagThreaded = flag.Bool("threaded", false, "use threaded mode in executor")
+	flagCollide  = flag.Bool("collide", false, "collide syscalls to provoke data races")
 	flagSignal   = flag.Bool("cover", true, "collect feedback signals (coverage)")
 	flagSandbox  = flag.String("sandbox", "setuid", "sandbox for fuzzing (none/setuid/namespace)")
 	flagDebug    = flag.Bool("debug", false, "debug output from executor")

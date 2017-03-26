@@ -55,7 +55,6 @@ func main() {
 	if len(progs) == 0 {
 		return
 	}
-
 	flags, timeout, err := ipc.DefaultFlags()
 	if err != nil {
 		Fatalf("%v", err)
@@ -67,6 +66,8 @@ func main() {
 		needCover = true
 		dedupCover = false
 	}
+
+	flags |= ipc.FlagDebug
 
 	handled := make(map[string]bool)
 	for _, prog := range progs {
@@ -94,7 +95,8 @@ func main() {
 				Fatalf("failed to create ipc env: %v", err)
 			}
 			defer env.Close()
-			for {
+			fmt.Printf("Pos = %v\n", pos)
+			for pos < len(progs) {
 				if !func() bool {
 					// Limit concurrency window.
 					ticket := gate.Enter()
