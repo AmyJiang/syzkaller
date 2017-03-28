@@ -163,6 +163,16 @@ kacpi_hotplug/246 is trying to acquire lock:
 `: `possible deadlock in serial8250_console_write`,
 
 		`
+[   52.261501] =================================
+[   52.261501] [ INFO: inconsistent lock state ]
+[   52.261501] 4.10.0+ #60 Not tainted
+[   52.261501] ---------------------------------
+[   52.261501] inconsistent {IN-SOFTIRQ-W} -> {SOFTIRQ-ON-W} usage.
+[   52.261501] syz-executor3/5076 [HC0[0]:SC0[0]:HE1:SE1] takes:
+[   52.261501]  (&(&hashinfo->ehash_locks[i])->rlock){+.?...}, at: [<ffffffff83a6a370>] inet_ehash_insert+0x240/0xad0
+`: `inconsistent lock state in inet_ehash_insert`,
+
+		`
 [ INFO: suspicious RCU usage. ]
 4.3.5-smp-DEV #101 Not tainted
 -------------------------------
@@ -552,7 +562,7 @@ WARNING: /etc/ssh/moduli does not exist, using fixed modulus
 
 		`
 [   76.825838] BUG: using __this_cpu_add() in preemptible [00000000] code: syz-executor0/10076
-`: `BUG: using __this_cpu_add() in preemptible [00000000] code: syz-executor`,
+`: `BUG: using __this_cpu_add() in preemptible [ADDR] code: syz-executor`,
 
 		`
 [  367.131148] BUG kmalloc-8 (Tainted: G    B         ): Object already free
@@ -564,7 +574,13 @@ WARNING: /etc/ssh/moduli does not exist, using fixed modulus
 [   95.445015] perf: interrupt took too long (3985 > 3976), lowering kernel.perf_event_max_sample_rate to 50000
 `: ``,
 
-		`[   92.396607] general protection fault: 0000 [#1] [ 387.811073] audit: type=1326 audit(1486238739.637:135): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=10020 comm="syz-executor1" exe="/root/syz-executor1" sig=31 arch=c000003e syscall=202 compat=0 ip=0x44fad9 code=0x0`: `general protection fault: 0000 [#1] [ 387.811073] audit: type=1326 audit(1486238739.637:135): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=10020 comm="syz-executor1" exe="/root/s`,
+		`[   92.396607] general protection fault: 0000 [#1] [ 387.811073] audit: type=1326 audit(1486238739.637:135): auid=4294967295 uid=0 gid=0 ses=4294967295 pid=10020 comm="syz-executor1" exe="/root/syz-executor1" sig=31 arch=c000003e syscall=202 compat=0 ip=0x44fad9 code=0x0`: `general protection fault: 0000 [#1] [ 387.NUM] audit: type=1326 audit(ADDR.637:135): auid=ADDR uid=0 gid=0 ses=ADDR pid=NUM comm="syz-executor" exe="/root/syz-executor" sig=31 arch`,
+
+		`
+[   40.438790] BUG: Bad page map in process syz-executor6  pte:ffff8801a700ff00 pmd:1a700f067
+[   40.447217] addr:00000000009ca000 vm_flags:00100073 anon_vma:ffff8801d16f20e0 mapping:          (null) index:9ca
+[   40.457560] file:          (null) fault:          (null) mmap:          (null) readpage:          (null)
+`: `BUG: Bad page map in process syz-executor  pte:ADDR pmd:ADDR`,
 	}
 	for log, crash := range tests {
 		if strings.Index(log, "\r\n") != -1 {
