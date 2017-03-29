@@ -469,7 +469,7 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	if inp.minimized {
 		// We just need to get input coverage.
 		for i := 0; i < 3; i++ {
-			info := execute1(pid, env, inp.p, &statExecTriage, true, false)
+			info, _ := execute1(pid, env, inp.p, &statExecTriage, true, false)
 			if len(info) == 0 || len(info[inp.call].Cover) == 0 {
 				continue // The call was not executed. Happens sometimes.
 			}
@@ -480,7 +480,7 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 		// We need to compute input coverage and non-flaky signal for minimization.
 		notexecuted := false
 		for i := 0; i < 3; i++ {
-			info := execute1(pid, env, inp.p, &statExecTriage, true, false)
+			info, _ := execute1(pid, env, inp.p, &statExecTriage, true, false)
 			if len(info) == 0 || len(info[inp.call].Signal) == 0 {
 				// The call was not executed. Happens sometimes.
 				if notexecuted {
@@ -545,10 +545,37 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	corpusMu.Unlock()
 }
 
+func has_diff(statuses [][]uint32) bool {
+	for i := 1; i < len(statuses); i += 1 {
+		for j, v1 := range statuses[i-1] {
+			if statuses[i][j] != v1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidate bool, stat *uint64) []ipc.CallInfo {
-	info := execute1(pid, env, p, stat, needCover, true)
+	info, dirStatus := execute1(pid, env, p, stat, needCover, true)
 	signalMu.RLock()
 	defer signalMu.RUnlock()
+
+	if has_diff(dirStatus) {
+		// report a new diff-inducing program
+		atomic.AddUint64(&statNewDiff, 1)
+		Logf(2, "reporting new diff from %v: status = %v\n", *flagName, dirStatus)
+		a := &NewDiffArgs{
+			Name:   *flagName,
+			Prog:   p.Serialize(),
+			Status: dirStatus,
+		}
+
+		if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
+			panic(err)
+		}
+		return info
+	}
 
 	for i, inf := range info {
 		if !cover.SignalNew(maxSignal, inf.Signal) {
@@ -582,13 +609,16 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 
 var logMu sync.Mutex
 
-func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool) []ipc.CallInfo {
+func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool) (info []ipc.CallInfo, dirStatus [][]uint32) {
 	// intercept execute1 to execute one program under multiple rootdirs
-	// TODO a flag to control if to compare two fs
-	// only needed at the first time (as newly generated program, or candidate
 	// TODO: fix the stat (= total all * #rootdirs)
-	info := make([]ipc.CallInfo, len(p.Calls))
-	dirStatus := make([][]uint32, len(rootDirs))
+	// ChangeLog: 03/29/2017, do not add diff back to corpus
+	info = make([]ipc.CallInfo, len(p.Calls))
+	dirStatus = nil
+	if needDirStatus {
+		dirStatus = make([][]uint32, len(rootDirs))
+	}
+
 	for i, rootDir := range rootDirs {
 		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, needDirStatus, rootDir)
 
@@ -605,34 +635,7 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool,
 			}
 		}
 	}
-
-	if needDirStatus {
-		// compare two hash
-		has_diff := false
-		for i := 1; i < len(dirStatus) && !has_diff; i += 1 {
-			for j, v1 := range dirStatus[i-1] {
-				if dirStatus[i][j] != v1 {
-					has_diff = true
-					break
-				}
-			}
-		}
-		if has_diff {
-			atomic.AddUint64(&statNewDiff, 1)
-			Logf(2, "reporting new diff from %v: status = %v\n", *flagName, dirStatus)
-			a := &NewDiffArgs{
-				Name:   *flagName,
-				Prog:   p.Serialize(),
-				Status: dirStatus,
-			}
-
-			if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
-				panic(err)
-			}
-		}
-	}
-
-	return info
+	return info, dirStatus
 }
 
 func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool, rootDir string) (info []ipc.CallInfo, dirStatus []uint32) {
