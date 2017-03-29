@@ -547,6 +547,9 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 
 func has_diff(statuses [][]uint32) bool {
 	for i := 1; i < len(statuses); i += 1 {
+		if len(statuses[i]) != len(statuses[i-1]) {
+			return true
+		}
 		for j, v1 := range statuses[i-1] {
 			if statuses[i][j] != v1 {
 				return true
