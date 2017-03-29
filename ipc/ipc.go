@@ -323,9 +323,9 @@ func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallIn
 			err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
 			return
 		}
-		fmt.Printf("[OutputDirStatus]: size = %v\n", dirStatusSize)
-		if dirStatusSize > uint32(len(out)) {
-			err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
+		if dirStatusSize != 5 {
+			fmt.Printf("[OutputDirStatus]: size = %v\n", dirStatusSize)
+			// err0 = fmt.Errorf("executor %v: wrong directory status size", env.pid)
 			return
 		}
 		dirStatus = out[:dirStatusSize:dirStatusSize]
