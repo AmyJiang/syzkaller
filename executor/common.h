@@ -496,7 +496,7 @@ std::string get_status(struct stat& st)
 	status_str << (unsigned long)st.st_mode << ","			// file type + permission
 		   << (long)st.st_nlink << ","				// link count
 		   << (long)st.st_uid << "," << (long)st.st_gid << ","; // ownership
-									//    status_str << format_time(st) << ",";               // time (last status change, last file access, last file modification)
+	//    status_str << format_time(st) << ",";               // time (last status change, last file access, last file modification)
 	if (S_ISREG(st.st_mode)) {
 		status_str << (long long)st.st_size << ","; // file size
 	}

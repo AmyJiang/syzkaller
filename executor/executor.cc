@@ -298,6 +298,7 @@ void loop()
 				continue;
 			debug("waitpid(%d)=%d (%d)\n", pid, res, errno0);
 			debug("killing\n");
+			// TODO killing
 			kill(-pid, SIGKILL);
 			kill(pid, SIGKILL);
 			for (;;) {
@@ -315,9 +316,9 @@ void loop()
 			error("child errored");
 		char cur[256];
 		getcwd(cur, 255);
-		debug("cwdbuf: %s\%s\n", cur, cwdbuf);
-		debug_dir_status(cwdbuf);
-		//remove_dir(cwdbuf);
+		// debug("cwdbuf: %s\%s\n", cur, cwdbuf);
+		// debug_dir_status(cwdbuf);
+		remove_dir(cwdbuf);
 		if (write(kOutPipeFd, &tmp, 1) != 1)
 			fail("control pipe write failed");
 	}

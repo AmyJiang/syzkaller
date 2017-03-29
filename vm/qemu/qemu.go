@@ -199,7 +199,7 @@ func (inst *instance) Boot() error {
 			cmdline += "root=/dev/root rootfstype=9p rootflags=trans=virtio,version=9p2000.L,cache=loose "
 			cmdline += "init=" + filepath.Join(inst.cfg.Workdir, "init.sh") + " "
 		} else {
-		    //	cmdline += "root=/dev/sda "
+			//	cmdline += "root=/dev/sda "
 		}
 		args = append(args,
 			"-kernel", inst.cfg.Kernel,
