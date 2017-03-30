@@ -62,7 +62,7 @@
         "syz_emit_ethernet"
     ],
     "filesystems": [
-        "./",
-        "/testfs"
+        "/testfs1",
+        "/testfs2"
     ]
 }
