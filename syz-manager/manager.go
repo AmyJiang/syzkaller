@@ -754,7 +754,7 @@ func (mgr *Manager) Check(a *CheckArgs, r *int) error {
 }
 
 func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
-	Logf(0, "received new diff from %v: %v", a.Name, a.Prog)
+	Logf(0, "received new diff from %v", a.Name)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	f := mgr.fuzzers[a.Name]
