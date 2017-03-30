@@ -8,18 +8,18 @@
 package main
 
 import (
-    "bytes"
+	"bytes"
 	"encoding/binary"
 	"flag"
 	"fmt"
-    "path/filepath"
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"time"
 
 	"github.com/google/syzkaller/cover"
 	"github.com/google/syzkaller/ipc"
@@ -32,42 +32,74 @@ var (
 	flagCoverFile = flag.String("coverfile", "", "write coverage to the file")
 	flagRepeat    = flag.Int("repeat", 1, "repeat execution that many times (0 for infinite loop)")
 	flagProcs     = flag.Int("procs", 1, "number of parallel processes to execute programs")
-	flagOutput    = flag.String("output", "none", "write programs to none/stdout")
+	flagTestdirs  = flag.String("testdirs", "", "colon-separated list of test directories")
 )
 
-func static_analyze(progs map[string]*prog.Prog) {
-    lastcall := make(map[string]int)
-    calls := make(map[string]int)
-    sig := make(map[string]int)
+func static_analyze(diffdir string) {
+	lastcall := make(map[string]int)
+	calls := make(map[string]int)
+	sig := make(map[string]int)
 
-    for _, p := range(progs) {
-        sig[p.String()]++
-        lc := p.Calls[len(p.Calls)-1].Meta.Name
-        lastcall[lc]++
-        for _, c := range p.Calls {
-            calls[c.Meta.Name]++
-        }
+	files, err := ioutil.ReadDir(diffdir)
+	if err != nil {
+		Fatalf("failed to read directory: %v", diffdir)
+	}
+	failed := 0
+	for _, fn := range files {
+		data, err := ioutil.ReadFile(filepath.Join(diffdir, fn.Name()))
+		if err != nil {
+			fmt.Printf("failed to read prog: %v\n", err)
+			return
+		}
+		p, err := prog.Deserialize(data)
+		if err != nil {
+			failed++
+			continue
+		}
+		sig[p.String()]++
+		lastcall[p.Calls[len(p.Calls)-1].Meta.Name]++
+		for _, c := range p.Calls {
+			calls[c.Meta.Name]++
+		}
+
+	}
+	fmt.Printf("Triage %v programs (%v failed)", len(files), failed)
+	fmt.Printf("\nCount call chain:\n")
+	for k, v := range sig {
+		fmt.Printf("  %v: %v\n", k, v)
 	}
 
-    Logf(0, "\nCount call chain:");
-    for k, v := range(sig) {
-        fmt.Printf("  %v: %v\n", k, v)
-    }
+	fmt.Printf("\nCount last call:\n")
+	for k, v := range lastcall {
+		fmt.Printf("  %v: %v\n", k, v)
+	}
 
+	fmt.Printf("\n Count all calls:\n")
+	for k, v := range calls {
+		fmt.Printf("  %v: %v\n", k, v)
+	}
 
-    Logf(0, "\nCount last call:");
-    for k, v := range(lastcall) {
-        fmt.Printf("  %v: %v\n", k, v)
-    }
-
-    Logf(0, "\n Count all calls:");
-    for k, v := range(calls) {
-        fmt.Printf("  %v: %v\n", k, v)
-    }
 }
 
-// TODO (never tested)
-func run_analyze(progs []*prog.Prog) {
+func has_diff(statuses [][]uint32) bool {
+	for i := 1; i < len(statuses); i += 1 {
+		if len(statuses[i]) != len(statuses[i-1]) {
+			return true
+		}
+		for j, v1 := range statuses[i-1] {
+			if statuses[i][j] != v1 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func diff_analyze(diffdir string) {
+	if *flagTestdirs == "" {
+		Fatalf("failed to get test directories from flag")
+	}
+	testdirs := strings.Split(*flagTestdirs, ":")
 	flags, timeout, err := ipc.DefaultFlags()
 	if err != nil {
 		Fatalf("%v", err)
@@ -80,63 +112,74 @@ func run_analyze(progs []*prog.Prog) {
 		dedupCover = false
 	}
 
-	flags |= ipc.FlagDebug
-
-	handled := make(map[string]bool)
-	for _, prog := range progs {
-		for _, call := range prog.Calls {
-			handled[call.Meta.CallName] = true
-		}
-	}
-	if handled["syz_emit_ethernet"] {
-		flags |= ipc.FlagEnableTun
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(*flagProcs)
-	var posMu, logMu sync.Mutex
-	gate := ipc.NewGate(2**flagProcs, nil)
-	var pos int
-	var lastPrint time.Time
+	var logMu sync.Mutex
+	// gate := ipc.NewGate(2**flagProcs, nil)
 	var shutdown uint32
+	candidates := make(chan struct {
+		prog *prog.Prog
+		name string
+	}, 100)
+
+	files, err := ioutil.ReadDir(diffdir)
+	if err != nil {
+		Fatalf("failed to read directory: %v", diffdir)
+	}
+	go func() {
+		defer close(candidates)
+		failed := 0
+		for _, fn := range files {
+			if atomic.LoadUint32(&shutdown) != 0 {
+				return
+			}
+			data, err := ioutil.ReadFile(filepath.Join(diffdir, fn.Name()))
+			if err != nil {
+				fmt.Printf("failed to read prog: %v\n", err)
+				return
+			}
+			p, err := prog.Deserialize(data)
+			if err != nil {
+				failed++
+				continue
+			}
+			for i := 0; i < *flagRepeat; i++ {
+				candidates <- struct {
+					prog *prog.Prog
+					name string
+				}{p, fn.Name()}
+			}
+		}
+	}()
+
 	for p := 0; p < *flagProcs; p++ {
 		pid := p
 		go func() {
+			var diffs []string
 			defer wg.Done()
 			env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, pid)
 			if err != nil {
 				Fatalf("failed to create ipc env: %v", err)
 			}
 			defer env.Close()
-			fmt.Printf("Pos = %v\n", pos)
-			for pos < len(progs) {
-				if !func() bool {
-					// Limit concurrency window.
-					ticket := gate.Enter()
-					defer gate.Leave(ticket)
+			for c := range candidates {
+				// Limit concurrency window.
+				// ticket := gate.Enter()
+				// defer gate.Leave(ticket)
 
-					posMu.Lock()
-					idx := pos
-					pos++
-					if idx%len(progs) == 0 && time.Since(lastPrint) > 5*time.Second {
-						Logf(0, "executed programs: %v", idx)
-						lastPrint = time.Now()
-					}
-					posMu.Unlock()
-					if *flagRepeat > 0 && idx >= len(progs)**flagRepeat {
-						return false
-					}
-					p := progs[idx%len(progs)]
-					switch *flagOutput {
-					case "stdout":
-						logMu.Lock()
-						Logf(0, "executing program %v:\n%s", pid, p)
-						logMu.Unlock()
-					}
-					output, info, failed, hanged, err, _ := env.Exec(p, needCover, dedupCover, false, "./")
+				candidate := c.prog
+				name := c.name
+				logMu.Lock()
+				Logf(0, "executing program %v: %s", pid, name)
+				logMu.Unlock()
+
+				statuses := make([][]uint32, len(testdirs))
+				for i, dir := range testdirs {
 					if atomic.LoadUint32(&shutdown) != 0 {
-						return false
+						return
 					}
+					output, info, failed, hanged, err, status := env.Exec(candidate, needCover, dedupCover, true, dir)
+					statuses[i] = append(statuses[i], status...)
 					if failed {
 						fmt.Printf("BUG: executor-detected bug:\n%s", output)
 					}
@@ -163,10 +206,14 @@ func run_analyze(progs []*prog.Prog) {
 							}
 						}
 					}
-					return true
-				}() {
-					return
 				}
+				if has_diff(statuses) {
+					diffs = append(diffs, name)
+				}
+			}
+
+			for _, n := range diffs {
+				fmt.Printf("%v detected diff: %v", pid, n)
 			}
 		}()
 	}
@@ -184,7 +231,6 @@ func run_analyze(progs []*prog.Prog) {
 	wg.Wait()
 }
 
-
 func main() {
 	flag.Parse()
 	if len(flag.Args()) != 1 {
@@ -193,33 +239,7 @@ func main() {
 		os.Exit(1)
 	}
 
-    diffdir := flag.Args()[0]
-    files, err := ioutil.ReadDir(diffdir)
-    if err != nil {
-        Fatalf("failed to read directory: %v", diffdir)
-    }
-
-
-    failed := 0
-    progs := make(map[string]*prog.Prog)
-    for _, fn := range files {
-		data, err := ioutil.ReadFile(filepath.Join(diffdir, fn.Name()))
-		if err != nil {
-			Fatalf("failed to read prog: %v", err)
-		}
-        p, err := prog.Deserialize(data)
-        if err != nil {
-            failed++;
-            continue
-        }
-        progs[fn.Name()] = p
-    }
-
-    Logf(0, "Triaged %v programs", len(progs))
-    if len(progs) == 0 {
-        return
-    }
-    static_analyze(progs)
-    // run_analyze(progs)
+	diffdir := flag.Args()[0]
+	// static_analyze(diffdir)
+	diff_analyze(diffdir)
 }
-
