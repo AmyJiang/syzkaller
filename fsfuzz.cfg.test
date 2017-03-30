@@ -14,7 +14,7 @@
     "mem": 2048,
     "bin": "/usr/bin/qemu-system-x86_64",
     "bin_args": "",
-    "cmdline": "root=/dev/sda1",
+    "cmdline": "root=/dev/sda3",
     "enable_syscalls": [
         "open",
         "openat",
