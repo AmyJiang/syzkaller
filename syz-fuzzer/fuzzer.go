@@ -270,11 +270,14 @@ func main() {
 					// Generate a new prog.
 					corpusMu.RUnlock()
 					p := prog.Generate(rnd, programLength, ct)
+					p.PrevProg = nil
 					Logf(1, "#%v: generated: %s", i, p)
 					execute(pid, env, p, false, false, false, &statExecGen)
 				} else {
 					// Mutate an existing prog.
-					p := corpus[rnd.Intn(len(corpus))].Clone()
+					p0 := corpus[rnd.Intn(len(corpus))]
+					p := p0.Clone()
+					p.PrevProg = p0
 					corpusMu.RUnlock()
 					p.Mutate(rs, programLength, ct, corpus)
 					Logf(1, "#%v: mutated: %s", i, p)
@@ -568,10 +571,16 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 		// report a new diff-inducing program
 		atomic.AddUint64(&statNewDiff, 1)
 		Logf(2, "reporting new diff from %v: status = %v\n", *flagName, dirStatus)
+		var prevprog []byte = nil
+		if p.PrevProg != nil {
+			prevprog = p.PrevProg.Serialize()
+		}
+
 		a := &NewDiffArgs{
-			Name:   *flagName,
-			Prog:   p.Serialize(),
-			Status: dirStatus,
+			Name:     *flagName,
+			Prog:     p.Serialize(),
+			PrevProg: prevprog,
+			Status:   dirStatus,
 		}
 
 		if err := manager.Call("Manager.NewDiff", a, nil); err != nil {

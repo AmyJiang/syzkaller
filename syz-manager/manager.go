@@ -765,9 +765,17 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	mgr.stats["diffs"]++
 	sig := hash.String(a.Prog)
 	mgr.diffDB.Save(sig, a.Prog, 0)
+
+	if a.PrevProg != nil {
+		sig0 := hash.String(a.PrevProg)
+		f0 := strings.Join([]string{sig, "BeforeMutationWas", sig0}, "_")
+		mgr.diffDB.Save(f0, a.PrevProg, 0)
+	}
+
 	if err := mgr.diffDB.Flush(); err != nil {
 		Logf(0, "failed to save diff database: %v", err)
 	}
+	Logf(0, "saved new diff to %v", sig)
 	return nil
 }
 

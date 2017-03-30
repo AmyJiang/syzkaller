@@ -10,7 +10,8 @@ import (
 )
 
 type Prog struct {
-	Calls []*Call
+	Calls    []*Call
+	PrevProg *Prog
 }
 
 type Call struct {
