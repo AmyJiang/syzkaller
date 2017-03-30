@@ -55,6 +55,7 @@ func main() {
 	if len(progs) == 0 {
 		return
 	}
+
 	flags, timeout, err := ipc.DefaultFlags()
 	if err != nil {
 		Fatalf("%v", err)
@@ -66,8 +67,6 @@ func main() {
 		needCover = true
 		dedupCover = false
 	}
-
-	flags |= ipc.FlagDebug
 
 	handled := make(map[string]bool)
 	for _, prog := range progs {
@@ -95,8 +94,7 @@ func main() {
 				Fatalf("failed to create ipc env: %v", err)
 			}
 			defer env.Close()
-			fmt.Printf("Pos = %v\n", pos)
-			for pos < len(progs) {
+			for {
 				if !func() bool {
 					// Limit concurrency window.
 					ticket := gate.Enter()
@@ -121,7 +119,7 @@ func main() {
 						Logf(0, "executing program %v:\n%s", pid, data)
 						logMu.Unlock()
 					}
-					output, info, failed, hanged, err, _ := env.Exec(p, needCover, dedupCover, false, "./")
+					output, info, failed, hanged, err := env.Exec(p, needCover, dedupCover)
 					if atomic.LoadUint32(&shutdown) != 0 {
 						return false
 					}
