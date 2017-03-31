@@ -13,7 +13,8 @@ all:
 	go install ./syz-manager ./syz-fuzzer
 	$(MAKE) manager
 	$(MAKE) fuzzer
-	$(MAKE) execprog
+#	$(MAKE) execprog
+	$(MAKE) triagediff
 	$(MAKE) executor
 
 all-tools: execprog mutate prog2c stress repro upgrade
@@ -47,6 +48,11 @@ stress:
 
 upgrade:
 	go build -o ./bin/syz-upgrade github.com/google/syzkaller/tools/syz-upgrade
+
+triagediff:
+	go build -o ./bin/syz-triagediff github.com/google/syzkaller/tools/syz-triagediff
+
+
 
 extract: bin/syz-extract
 	LINUX=$(LINUX) LINUXBLD=$(LINUXBLD) ./extract.sh
