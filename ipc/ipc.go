@@ -238,7 +238,11 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir str
 		return
 	}
 
-	if env.flags&FlagSignal == 0 || p == nil || needDirStatus {
+	if p == nil {
+		return
+	}
+
+	if env.flags&FlagSignal != 0 || needDirStatus {
 		info, err0, dirStatus = env.readOutCoverage(p, needDirStatus)
 	}
 
