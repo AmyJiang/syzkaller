@@ -238,50 +238,15 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir str
 		return
 	}
 
+	if env.flags&FlagSignal == 0 || p == nil || needDirStatus {
+		info, err0, dirStatus = env.readOutCoverage(p, needDirStatus)
+	}
+
+	return
+}
+
+func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallInfo, err0 error, dirStatus []uint32) {
 	out := ((*[1 << 28]uint32)(unsafe.Pointer(&env.Out[0])))[:len(env.Out)/int(unsafe.Sizeof(uint32(0)))]
-	if env.flags&FlagSignal == 0 || p == nil {
-		info, err0, out = env.readOutCoverage(p, out)
-	}
-
-	if needDirStatus {
-		var err1 error
-		dirStatus, err1 = env.readOutDirStatus(out)
-		if err1 != nil && err0 == nil {
-			err0 = err1
-		}
-	}
-	return
-}
-
-func (env *Env) readOutDirStatus(out []uint32) (dirStatus []uint32, err0 error) {
-	// read out dir status (hash)
-	dirStatus = nil
-	var dirStatusSize uint32
-	readOut := func(v *uint32) bool {
-		if len(out) == 0 {
-			return false
-		}
-		*v = out[0]
-		out = out[1:]
-		return true
-	}
-
-	if !readOut(&dirStatusSize) {
-		err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
-		return
-	}
-	if dirStatusSize != 5 {
-		fmt.Printf("[OutputDirStatus]: size = %v\n", dirStatusSize)
-		// err0 = fmt.Errorf("executor %v: wrong directory status size", env.pid)
-		return
-	}
-	dirStatus = out[:dirStatusSize:dirStatusSize]
-	out = out[dirStatusSize:]
-
-	return
-}
-
-func (env *Env) readOutCoverage(p *prog.Prog, out []uint32) (info []CallInfo, err0 error, out_next []uint32) {
 	readOut := func(v *uint32) bool {
 		if len(out) == 0 {
 			return false
@@ -349,7 +314,22 @@ func (env *Env) readOutCoverage(p *prog.Prog, out []uint32) (info []CallInfo, er
 		info[callIndex].Cover = out[:coverSize:coverSize]
 		out = out[coverSize:]
 	}
-	out_next = out
+
+	dirStatus = nil
+	var dirStatusSize uint32
+	if needDirStatus {
+		if !readOut(&dirStatusSize) {
+			err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
+			return
+		}
+		if dirStatusSize != 5 {
+			fmt.Printf("[OutputDirStatus]: size = %v\n", dirStatusSize)
+			// err0 = fmt.Errorf("executor %v: wrong directory status size", env.pid)
+			return
+		}
+		dirStatus = out[:dirStatusSize:dirStatusSize]
+		out = out[dirStatusSize:]
+	}
 
 	return
 }
