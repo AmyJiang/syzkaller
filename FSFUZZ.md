@@ -17,9 +17,11 @@ The test partitions are mounted at start time in default as /testfs1 and /testfs
 
 ### Configure
 
-`fsfuzz.cfg.test`(fsfuzz.cfg.test) is a sample configuration file:
+[`fsfuzz.cfg.test`](fsfuzz.cfg.test) is a sample configuration file:
 - "cmdline": "root=/dev/sda3"
+    
     sda3 is the default boot partition in an image created by the `partition_image.sh` script
+    
 - "filesystems": ["/testfs1", "/testfs2"]
 
 
@@ -43,13 +45,12 @@ To unpack the directory, use
 ./bin/syz-db unpack diff.db diff.dir`
 ```
 
-In the unpacked diff.dir, for each diff-inducing program, there is also the program it mutates froms: `xxxx_BeforeMutationWas_yyyy`. `xxxx` is the SHA1 hash of the
-diff-inducing program, and `yyyy` is the hash of the program before mutation. Comparing the two program, one could localize the changes in syscalls that lead to the discrepency.
+In the unpacked diff.dir, each diff-inducing program is named as the SHA1 hash of its content. There is also a program from which each diff-inducing program mutates: `xxxx_BeforeMutationWas_yyyy`. `xxxx` is name/hash of the diff-inducing program, and `yyyy` is the hash of the program before mutation (i.e this file). Comparing the two programs, one could localize the changes in syscalls that lead to the discrepency.
 
 ### Examine one diff-inducing program
 To produce an equivalent C program, use
 ```
-`./bin/syz-prog2c -prog <diff.dir/xxxx>`
+./bin/syz-prog2c -prog <diff.dir/xxxx>
 ```
 
 ### Triage all diffs
