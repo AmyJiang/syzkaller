@@ -33,7 +33,6 @@ var (
 	flagRepeat    = flag.Int("repeat", 1, "repeat execution that many times (0 for infinite loop)")
 	flagProcs     = flag.Int("procs", 1, "number of parallel processes to execute programs")
 	flagTestdirs  = flag.String("testdirs", "", "colon-separated list of test directories")
-	flagVerbose   = flag.Bool("verbose", false, "print out executor debug info")
 )
 
 func static_analyze(diffdir string) {
@@ -115,10 +114,6 @@ func diff_analyze(diffdir string) {
 		dedupCover = false
 	}
 
-	if *flagVerbose {
-		flags |= ipc.FlagDebug
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(*flagProcs)
 	var logMu sync.Mutex
@@ -187,7 +182,6 @@ func diff_analyze(diffdir string) {
 					}
 					output, info, failed, hanged, err, status := env.Exec(candidate, needCover, dedupCover, true, dir)
 					statuses[i] = append(statuses[i], status...)
-					// fmt.Printf("* executed in %v\n", dir)
 					if failed {
 						fmt.Printf("BUG: executor-detected bug:\n%s", output)
 					}
