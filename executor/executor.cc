@@ -314,9 +314,8 @@ void loop()
 			fail("child failed");
 		if (status == kErrorStatus)
 			error("child errored");
-		char cur[256];
-		getcwd(cur, 255);
-		// debug("cwdbuf: %s\%s\n", cur, cwdbuf);
+		// char cur[256];
+		// getcwd(cur, 255);
 		// debug_dir_status(cwdbuf);
 		remove_dir(cwdbuf);
 		if (write(kOutPipeFd, &tmp, 1) != 1)
