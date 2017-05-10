@@ -183,6 +183,12 @@ func (inst *instance) Boot() error {
 			"-snapshot",
 		)
 	}
+	if inst.cfg.ExtraImages != "" {
+		args = append(args,
+			strings.Split(inst.cfg.ExtraImages, " ")...,
+		)
+	}
+
 	if inst.cfg.Initrd != "" {
 		args = append(args,
 			"-initrd", inst.cfg.Initrd,

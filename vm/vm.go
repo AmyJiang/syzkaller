@@ -45,6 +45,7 @@ type Config struct {
 	Kernel          string
 	Cmdline         string
 	Image           string
+	ExtraImages     string
 	Sshkey          string
 	Executor        string
 	Device          string
