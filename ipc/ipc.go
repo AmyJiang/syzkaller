@@ -200,8 +200,7 @@ type CallInfo struct {
 // failed: true if executor has detected a kernel bug
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
-// rootdir: rootdir under which the test execution runs
-func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, dirStatus []uint32) {
+func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, states []uint32) {
 	if p != nil {
 		// Copy-in serialized program.
 		if err := p.SerializeForExec(env.In, env.pid); err != nil {
@@ -243,13 +242,13 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir str
 	}
 
 	if env.flags&FlagSignal != 0 || needDirStatus {
-		info, err0, dirStatus = env.readOutCoverage(p, needDirStatus)
+		info, err0, states = env.readOutCoverage(p, needDirStatus)
 	}
 
 	return
 }
 
-func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallInfo, err0 error, dirStatus []uint32) {
+func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallInfo, err0 error, states []uint32) {
 	out := ((*[1 << 28]uint32)(unsafe.Pointer(&env.Out[0])))[:len(env.Out)/int(unsafe.Sizeof(uint32(0)))]
 	readOut := func(v *uint32) bool {
 		if len(out) == 0 {
@@ -319,20 +318,20 @@ func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallIn
 		out = out[coverSize:]
 	}
 
-	dirStatus = nil
-	var dirStatusSize uint32
+	states = nil
+	var statesSize uint32
 	if needDirStatus {
-		if !readOut(&dirStatusSize) {
+		if !readOut(&statesSize) {
 			err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
 			return
 		}
-		if dirStatusSize != 5 {
-			fmt.Printf("[OutputDirStatus]: size = %v\n", dirStatusSize)
+		if statesSize != 5 {
+			fmt.Printf("[OutputDirStatus]: size = %v\n", statesSize)
 			// err0 = fmt.Errorf("executor %v: wrong directory status size", env.pid)
 			return
 		}
-		dirStatus = out[:dirStatusSize:dirStatusSize]
-		out = out[dirStatusSize:]
+		states = out[:statesSize:statesSize]
+		out = out[statesSize:]
 	}
 
 	return

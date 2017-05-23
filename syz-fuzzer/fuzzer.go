@@ -86,8 +86,10 @@ var (
 	statExecCandidate uint64
 	statExecTriage    uint64
 	statExecMinimize  uint64
-	statNewInput      uint64
-	statNewDiff       uint64
+	statExecDiff      uint64
+
+	statNewInput uint64
+	statNewDiff  uint64
 
 	allTriaged uint32
 	noCover    bool
@@ -338,12 +340,13 @@ func main() {
 			execTotal += execCandidate
 			execTriage := atomic.SwapUint64(&statExecTriage, 0)
 			a.Stats["exec triage"] = execTriage
-			execTotal += execTriage
+			//			execTotal += execTriage
 			execMinimize := atomic.SwapUint64(&statExecMinimize, 0)
 			a.Stats["exec minimize"] = execMinimize
-			execTotal += execMinimize
+			//			execTotal += execMinimize
 			a.Stats["fuzzer new inputs"] = atomic.SwapUint64(&statNewInput, 0)
 			a.Stats["fuzzer new diffs"] = atomic.SwapUint64(&statNewDiff, 0)
+			a.Stats["fuzzer reproduced diffs"] = atomic.SwapUint64(&statExecDiff, 0)
 			r := &PollRes{}
 			if err := manager.Call("Manager.Poll", a, r); err != nil {
 				panic(err)
@@ -505,7 +508,9 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 		}
 
 		inp.p, inp.call = prog.Minimize(inp.p, inp.call, func(p1 *prog.Prog, call1 int) bool {
-			info := execute(pid, env, p1, false, false, false, &statExecMinimize)
+			// FIXME: change call to execute to execute1
+			// original: info := execute(pid, env, p1, false, false, false, &statExecMinimize)
+			info, _ := execute1(pid, env, p1, &statExecMinimize, false, true)
 			if len(info) == 0 || len(info[call1].Signal) == 0 {
 				return false // The call was not executed.
 			}
@@ -548,13 +553,14 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	corpusMu.Unlock()
 }
 
-func has_diff(statuses [][]uint32) bool {
-	for i := 1; i < len(statuses); i += 1 {
-		if len(statuses[i]) != len(statuses[i-1]) {
-			return true
+func isDiscrepancy(states [][]uint32) bool {
+	for i := 1; i < len(states); i += 1 {
+		// FIXME: executor fails before handle_completion
+		if len(states[i]) != len(states[i-1]) {
+			break
 		}
-		for j, v1 := range statuses[i-1] {
-			if statuses[i][j] != v1 {
+		for j, v := range states[i-1] {
+			if v != states[i][j] {
 				return true
 			}
 		}
@@ -562,30 +568,42 @@ func has_diff(statuses [][]uint32) bool {
 	return false
 }
 
+func reproduceDiff(pid int, env *ipc.Env, p *prog.Prog, states [][]uint32) {
+	atomic.AddUint64(&statExecDiff, 1)
+	Logf(2, "reproducing diff from %v: %s\n", *flagName, p)
+	// FIXME: how does prog.Minimize work entirely
+	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+		_, states := execute1(pid, env, p1, &statExecDiff, false, true)
+		return isDiscrepancy(states)
+	}, false)
+
+	// report a new diff-inducing program
+	atomic.AddUint64(&statNewDiff, 1)
+	Logf(2, "reporting new diff from %v: %s\n", *flagName, p1)
+	var prevprog []byte = nil
+	if p.PrevProg != nil {
+		prevprog = p.PrevProg.Serialize()
+	}
+
+	a := &NewDiffArgs{
+		Name:     *flagName,
+		Prog:     p.Serialize(),
+		PrevProg: prevprog,
+		States:   states,
+	}
+
+	if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
+		panic(err)
+	}
+}
+
 func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidate bool, stat *uint64) []ipc.CallInfo {
-	info, dirStatus := execute1(pid, env, p, stat, needCover, true)
+	info, states := execute1(pid, env, p, stat, needCover, true)
 	signalMu.RLock()
 	defer signalMu.RUnlock()
 
-	if has_diff(dirStatus) {
-		// report a new diff-inducing program
-		atomic.AddUint64(&statNewDiff, 1)
-		Logf(2, "reporting new diff from %v: status = %v\n", *flagName, dirStatus)
-		var prevprog []byte = nil
-		if p.PrevProg != nil {
-			prevprog = p.PrevProg.Serialize()
-		}
-
-		a := &NewDiffArgs{
-			Name:     *flagName,
-			Prog:     p.Serialize(),
-			PrevProg: prevprog,
-			Status:   dirStatus,
-		}
-
-		if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
-			panic(err)
-		}
+	if isDiscrepancy(states) {
+		reproduceDiff(pid, env, p, states)
 		return info
 	}
 
@@ -621,21 +639,21 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 
 var logMu sync.Mutex
 
-func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool) (info []ipc.CallInfo, dirStatus [][]uint32) {
+func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (info []ipc.CallInfo, states [][]uint32) {
 	// intercept execute1 to execute one program under multiple rootdirs
 	// TODO: fix the stat (= total all * #rootdirs)
 	// ChangeLog: 03/29/2017, do not add diff back to corpus
 	info = make([]ipc.CallInfo, len(p.Calls))
-	dirStatus = nil
-	if needDirStatus {
-		dirStatus = make([][]uint32, len(rootDirs))
+	states = nil
+	if needState {
+		states = make([][]uint32, len(rootDirs))
 	}
 
 	for i, rootDir := range rootDirs {
-		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, needDirStatus, rootDir)
+		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, needState, rootDir)
 
-		if needDirStatus {
-			dirStatus[i] = append(dirStatus[i], dir_stats...)
+		if needState {
+			states[i] = append(states[i], dir_stats...)
 		}
 
 		for call, inf := range calls_info {
@@ -647,10 +665,10 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool,
 			}
 		}
 	}
-	return info, dirStatus
+	return info, states
 }
 
-func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needDirStatus bool, rootDir string) (info []ipc.CallInfo, dirStatus []uint32) {
+func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, rootDir string) (info []ipc.CallInfo, states []uint32) {
 	if false {
 		// For debugging, this function must not be executed with locks held.
 		corpusMu.Lock()
@@ -694,7 +712,7 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	try := 0
 retry:
 	atomic.AddUint64(stat, 1)
-	output, info, failed, hanged, err, dirStatus := env.Exec(p, needCover, true, needDirStatus, rootDir)
+	output, info, failed, hanged, err, states := env.Exec(p, needCover, true, needState, rootDir)
 	if failed {
 		// BUG in output should be recognized by manager.
 		Logf(0, "BUG: executor-detected bug:\n%s", output)

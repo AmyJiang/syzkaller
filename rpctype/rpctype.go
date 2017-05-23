@@ -58,7 +58,7 @@ type NewDiffArgs struct {
 	Name     string
 	Prog     []byte
 	PrevProg []byte
-	Status   [][]uint32
+	States   [][]uint32
 }
 
 type HubConnectArgs struct {
