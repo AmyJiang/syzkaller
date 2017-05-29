@@ -21,6 +21,7 @@ all-tools: execprog mutate prog2c stress repro upgrade
 
 executor:
 	$(CXX) -o ./bin/syz-executor executor/executor.cc -pthread -Wall -lcrypto -O1 -g $(STATIC_FLAG) $(CFLAGS)
+	$(CXX) -o ./bin/syz-executor.dbg executor/executor.cc -pthread -Wall -lcrypto -O1 -g $(STATIC_FLAG) $(CFLAGS) -DSYZ_FS_DEBUG
 
 manager:
 	go build -o ./bin/syz-manager github.com/google/syzkaller/syz-manager
@@ -33,6 +34,9 @@ execprog:
 
 repro:
 	go build -o ./bin/syz-repro github.com/google/syzkaller/tools/syz-repro
+
+reprodiff:
+	go build -o ./bin/syz-reprodiff github.com/google/syzkaller/tools/syz-reprodiff
 
 mutate:
 	go build -o ./bin/syz-mutate github.com/google/syzkaller/tools/syz-mutate
