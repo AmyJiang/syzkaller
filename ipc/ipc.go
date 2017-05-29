@@ -95,9 +95,11 @@ func DefaultFlags() (uint64, time.Duration, error) {
 	default:
 		return 0, 0, fmt.Errorf("flag sandbox must contain one of none/setuid/namespace")
 	}
-	if *flagDebug {
-		flags |= FlagDebug
-	}
+	/*
+		    if *flagDebug {
+				flags |= FlagDebug
+			}
+	*/
 	return flags, *flagTimeout, nil
 }
 

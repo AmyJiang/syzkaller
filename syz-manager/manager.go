@@ -251,7 +251,7 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 		}
 		go func() {
 			for {
-				time.Sleep(time.Minute)
+				time.Sleep(time.Second * 10.0)
 				vals := make(map[string]uint64)
 				mgr.mu.Lock()
 				if mgr.firstConnect.IsZero() {
@@ -448,12 +448,19 @@ func (mgr *Manager) runInstance(vmCfg *vm.Config, first bool) (*Crash, error) {
 		return nil, fmt.Errorf("failed to copy binary: %v", err)
 	}
 
+	// FIXME
+	_, err = inst.Copy(filepath.Join(mgr.cfg.Syzkaller, "bin", "syz-executor.dbg"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy binary: %v", err)
+	}
+
 	// Leak detection significantly slows down fuzzing, so detect leaks only on the first instance.
 	leak := first && mgr.cfg.Leak
 	fuzzerV := 0
 	procs := mgr.cfg.Procs
 	if *flagDebug {
-		fuzzerV = 100
+		//		fuzzerV = 100
+		fuzzerV = 1
 		procs = 1
 	}
 
@@ -766,10 +773,16 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	sig := hash.String(a.Prog)
 	mgr.diffDB.Save(sig, a.Prog, 0)
 
-	if a.PrevProg != nil {
-		sig0 := hash.String(a.PrevProg)
-		f0 := strings.Join([]string{sig, "BeforeMutationWas", sig0}, "_")
-		mgr.diffDB.Save(f0, a.PrevProg, 0)
+	/*	if a.PrevProg != nil {
+			sig0 := hash.String(a.PrevProg)
+			f0 := strings.Join([]string{sig, "BeforeMutationWas", sig0}, "_")
+			mgr.diffDB.Save(f0, a.PrevProg, 0)
+		}
+	*/
+
+	if a.MinimizedProg != nil {
+		f0 := strings.Join([]string{sig, "min"}, "_")
+		mgr.diffDB.Save(f0, a.MinimizedProg, 0)
 	}
 
 	if err := mgr.diffDB.Flush(); err != nil {
