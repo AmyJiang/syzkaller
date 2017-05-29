@@ -33,7 +33,6 @@
 #include "syscalls.h"
 
 #define SYZ_EXECUTOR
-#define SYZ_FS_DEBUG
 #include "common.h"
 
 #define KCOV_INIT_TRACE _IOR('c', 1, unsigned long long)
@@ -138,8 +137,8 @@ void cover_reset(thread_t* th);
 uint64_t cover_read(thread_t* th);
 static uint32_t hash(uint32_t a);
 static bool dedup(uint32_t sig);
-static void record_dir_status();
-static void hash_dir_status(const std::map<std::string, std::string>& file_status, unsigned char* hash);
+static void record_state();
+static void encode_state(const std::map<std::string, std::string>& state, unsigned char* hash);
 
 int main(int argc, char** argv)
 {
@@ -314,33 +313,34 @@ void loop()
 			fail("child failed");
 		if (status == kErrorStatus)
 			error("child errored");
-		// char cur[256];
-		// getcwd(cur, 255);
-		// debug_dir_status(cwdbuf);
+
+#if !defined(SYZ_FS_DEBUG)
 		remove_dir(cwdbuf);
+#endif
+
 		if (write(kOutPipeFd, &tmp, 1) != 1)
 			fail("control pipe write failed");
 	}
 }
 
-void hash_dir_status(const std::map<std::string, std::string>& file_status, unsigned char* hash)
+void encode_state(const std::map<std::string, std::string>& state, unsigned char* hash)
 {
 	std::stringstream ss;
-	for (auto it = file_status.begin(); it != file_status.end(); it++) {
+	for (auto it = state.begin(); it != state.end(); it++) {
 		ss << it->first << ":" << it->second << ";";
 	}
-	std::string status_str = ss.str();
-	debug("[HashDirStatus], status_str: %s\n", status_str.c_str());
-	SHA1((unsigned char*)status_str.c_str(), status_str.length(), hash);
+	std::string state_str = ss.str();
+	debug("encode_state: %s\n", state_str.c_str());
+	SHA1((unsigned char*)state_str.c_str(), state_str.length(), hash);
 }
 
-static void record_dir_status()
+static void record_state()
 {
-	std::map<std::string, std::string> file_status;
-	update_dir_status(".", file_status);
+	std::map<std::string, std::string> state;
+	update_state(".", state);
 
 	unsigned char hash[SHA_DIGEST_LENGTH];
-	hash_dir_status(file_status, hash);
+	encode_state(state, hash);
 
 	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t);
 	write_output((uint32_t)size);
@@ -460,8 +460,8 @@ retry:
 	}
 
 	if (!collide && flag_collect_dir_status) {
-		debug("collecting directory status\n");
-		record_dir_status();
+		debug("collecting fs state\n");
+		record_state();
 	}
 
 	if (flag_collide && !collide) {
@@ -585,6 +585,11 @@ void handle_completion(thread_t* th)
 		debug("out #%u: index=%u num=%u errno=%d sig=%u cover=%u\n",
 		      completed, th->call_index, th->call_num, reserrno, nsig, cover_size);
 
+#if defined(SYZ_FS_DEBUG)
+		debug("fs state: \n");
+		debug_state(".");
+#endif
+
 		completed++;
 		__atomic_store_n(output_data, completed, __ATOMIC_RELEASE);
 	}
@@ -638,8 +643,10 @@ void execute_call(thread_t* th)
 	th->reserrno = errno;
 	th->cover_size = cover_read(th);
 
-	if (th->res == (uint64_t)-1)
+	if (th->res == (uint64_t)-1) {
 		debug("#%d: %s = errno(%ld)\n", th->id, call->name, th->reserrno);
+	}
+
 	else
 		debug("#%d: %s = 0x%lx\n", th->id, call->name, th->res);
 	__atomic_store_n(&th->done, 1, __ATOMIC_RELEASE);
