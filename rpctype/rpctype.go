@@ -55,10 +55,9 @@ type PollRes struct {
 }
 
 type NewDiffArgs struct {
-	Name     string
-	Prog     []byte
-	PrevProg []byte
-	States   [][]uint32
+	Name          string
+	Prog          []byte
+	MinimizedProg []byte
 }
 
 type HubConnectArgs struct {

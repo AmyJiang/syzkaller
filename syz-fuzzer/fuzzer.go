@@ -79,6 +79,9 @@ var (
 	triageCandidate []Input
 	candidates      []Candidate
 
+	diffMu sync.RWMutex
+	diffs  []*prog.Prog
+
 	gate *ipc.Gate
 
 	statExecGen       uint64
@@ -208,6 +211,13 @@ func main() {
 	if !*flagLeak {
 		leakCallback = nil
 	}
+
+	var dbgEnv *ipc.Env
+	dbgEnv, err = ipc.MakeEnv(*flagExecutor+".dbg", timeout, flags|ipc.FlagDebug, 10000)
+	if err != nil {
+		panic(err)
+	}
+
 	gate = ipc.NewGate(2**flagProcs, leakCallback)
 	needPoll := make(chan struct{}, 1)
 	needPoll <- struct{}{}
@@ -225,6 +235,22 @@ func main() {
 			rnd := rand.New(rs)
 
 			for i := 0; ; i++ {
+				diffMu.RLock()
+				if len(diffs) != 0 {
+					diffMu.RUnlock()
+					diffMu.Lock()
+					last := len(diffs) - 1
+					p := diffs[last]
+					diffs = diffs[:last]
+					p1 := minimizeDiff(10000, dbgEnv, p)
+					reportDiff(p, p1)
+
+					diffMu.Unlock()
+					continue
+				} else {
+					diffMu.RUnlock()
+				}
+
 				triageMu.RLock()
 				if len(triageCandidate) != 0 || len(candidates) != 0 || len(triage) != 0 {
 					triageMu.RUnlock()
@@ -273,16 +299,16 @@ func main() {
 					corpusMu.RUnlock()
 					p := prog.Generate(rnd, programLength, ct)
 					p.PrevProg = nil
-					Logf(1, "#%v: generated: %s", i, p)
+					Logf(1, "generating: %s", p)
 					execute(pid, env, p, false, false, false, &statExecGen)
 				} else {
 					// Mutate an existing prog.
 					p0 := corpus[rnd.Intn(len(corpus))]
 					p := p0.Clone()
 					p.PrevProg = p0
+					Logf(1, "mutating: %s", p)
 					corpusMu.RUnlock()
 					p.Mutate(rs, programLength, ct, corpus)
-					Logf(1, "#%v: mutated: %s", i, p)
 					execute(pid, env, p, false, false, false, &statExecFuzz)
 				}
 			}
@@ -568,28 +594,26 @@ func isDiscrepancy(states [][]uint32) bool {
 	return false
 }
 
-func reproduceDiff(pid int, env *ipc.Env, p *prog.Prog, states [][]uint32) {
-	atomic.AddUint64(&statExecDiff, 1)
-	Logf(2, "reproducing diff from %v: %s\n", *flagName, p)
+// minimize a diff-inducing program
+func minimizeDiff(pid int, env *ipc.Env, p *prog.Prog) *prog.Prog {
+	Logf(1, "minimizing: %s from %v", p, *flagName)
 	// FIXME: how does prog.Minimize work entirely
 	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+		Logf(1, "minimizing: %s", p1)
 		_, states := execute1(pid, env, p1, &statExecDiff, false, true)
 		return isDiscrepancy(states)
 	}, false)
+	return p1
+}
 
+func reportDiff(p *prog.Prog, p1 *prog.Prog) {
 	// report a new diff-inducing program
 	atomic.AddUint64(&statNewDiff, 1)
-	Logf(2, "reporting new diff from %v: %s\n", *flagName, p1)
-	var prevprog []byte = nil
-	if p.PrevProg != nil {
-		prevprog = p.PrevProg.Serialize()
-	}
-
+	Logf(1, "reporting new diff from %v: %s", *flagName, p)
 	a := &NewDiffArgs{
-		Name:     *flagName,
-		Prog:     p.Serialize(),
-		PrevProg: prevprog,
-		States:   states,
+		Name:          *flagName,
+		Prog:          p.Serialize(),
+		MinimizedProg: p1.Serialize(),
 	}
 
 	if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
@@ -603,7 +627,9 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	defer signalMu.RUnlock()
 
 	if isDiscrepancy(states) {
-		reproduceDiff(pid, env, p, states)
+		diffMu.Lock()
+		diffs = append(diffs, p)
+		diffMu.Unlock()
 		return info
 	}
 
@@ -650,10 +676,10 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool,
 	}
 
 	for i, rootDir := range rootDirs {
-		calls_info, dir_stats := execute1_internal(pid, env, p, stat, needCover, needState, rootDir)
+		calls_info, state := execute1_internal(pid, env, p, stat, needCover, needState, rootDir)
 
 		if needState {
-			states[i] = append(states[i], dir_stats...)
+			states[i] = append(states[i], state...)
 		}
 
 		for call, inf := range calls_info {
@@ -689,15 +715,16 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	case "none":
 		// This case intentionally left blank.
 	case "stdout":
-		data := p.Serialize()
+		//		data := p.Serialize()
 		logMu.Lock()
-		Logf(0, "executing program %v:\n%s", pid, data)
+		//		Logf(0, "executing program %v:\n%s", pid, data)
+		Logf(2, "executing program %v: %s", pid, p)
 		logMu.Unlock()
 	case "dmesg":
 		fd, err := syscall.Open("/dev/kmsg", syscall.O_WRONLY, 0)
 		if err == nil {
 			buf := new(bytes.Buffer)
-			fmt.Fprintf(buf, "syzkaller: executing program %v:\n%s", pid, p.Serialize())
+			fmt.Fprintf(buf, "syzkaller: executing program %v:\n%s", pid, p)
 			syscall.Write(fd, buf.Bytes())
 			syscall.Close(fd)
 		}
