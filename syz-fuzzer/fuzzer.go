@@ -213,6 +213,7 @@ func main() {
 	}
 
 	var dbgEnv *ipc.Env
+	// FIXME: always set FlagDebug to print executor output?
 	dbgEnv, err = ipc.MakeEnv(*flagExecutor+".dbg", timeout, flags|ipc.FlagDebug, 10000)
 	if err != nil {
 		panic(err)
@@ -298,14 +299,11 @@ func main() {
 					// Generate a new prog.
 					corpusMu.RUnlock()
 					p := prog.Generate(rnd, programLength, ct)
-					p.PrevProg = nil
 					Logf(1, "generating: %s", p)
 					execute(pid, env, p, false, false, false, &statExecGen)
 				} else {
 					// Mutate an existing prog.
-					p0 := corpus[rnd.Intn(len(corpus))]
-					p := p0.Clone()
-					p.PrevProg = p0
+					p := corpus[rnd.Intn(len(corpus))].Clone()
 					Logf(1, "mutating: %s", p)
 					corpusMu.RUnlock()
 					p.Mutate(rs, programLength, ct, corpus)

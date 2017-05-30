@@ -776,13 +776,6 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	sig := hash.String(a.Prog)
 	mgr.diffDB.Save(sig, a.Prog, 0)
 
-	/*	if a.PrevProg != nil {
-			sig0 := hash.String(a.PrevProg)
-			f0 := strings.Join([]string{sig, "BeforeMutationWas", sig0}, "_")
-			mgr.diffDB.Save(f0, a.PrevProg, 0)
-		}
-	*/
-
 	if a.MinimizedProg != nil {
 		f0 := strings.Join([]string{sig, "min"}, "_")
 		mgr.diffDB.Save(f0, a.MinimizedProg, 0)
