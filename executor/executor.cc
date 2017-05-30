@@ -80,7 +80,7 @@ bool flag_enable_tun;
 
 bool flag_collect_cover;
 bool flag_dedup_cover;
-bool flag_collect_dir_status;
+bool flag_collect_fs_state;
 
 __attribute__((aligned(64 << 10))) char input_data[kMaxInput];
 uint32_t* output_data;
@@ -137,7 +137,8 @@ void cover_reset(thread_t* th);
 uint64_t cover_read(thread_t* th);
 static uint32_t hash(uint32_t a);
 static bool dedup(uint32_t sig);
-static void record_state();
+uint32_t* state_open();
+void state_write(const char* cwdbuf, uint32_t* pos);
 static void encode_state(const std::map<std::string, std::string>& state, unsigned char* hash);
 
 int main(int argc, char** argv)
@@ -220,6 +221,48 @@ int main(int argc, char** argv)
 	return 0;
 }
 
+uint32_t* state_open()
+{
+	if (flag_collide || !flag_collect_fs_state) {
+		return NULL;
+	}
+
+	debug("clearing fs state: pos = %lx\n", output_data);
+	uint32_t* pos = output_data;
+	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t) + 1;
+	for (uint32_t i = 0; i < size; i++) {
+		*output_data = (uint32_t)0;
+		output_data++;
+	}
+	return pos;
+}
+
+void state_write(const char* cwdbuf, uint32_t* pos)
+{
+	if (flag_collide || !flag_collect_fs_state) {
+		return;
+	}
+
+	if (!pos) {
+		return;
+	}
+
+	std::map<std::string, std::string> state;
+	update_state(cwdbuf, state);
+
+	unsigned char hash[SHA_DIGEST_LENGTH];
+	encode_state(state, hash);
+
+	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t);
+	debug("collecting fs state: pos = %lx, size = %d\n", pos, size);
+
+	output_data = pos; // reset output_data
+	*pos++ = (uint32_t)size;
+	for (uint32_t i = 0; i < size; i++) {
+		*pos++ = (uint32_t)((uint32_t*)hash)[i];
+	}
+}
+
 void loop()
 {
 	// Tell parent that we are ready to serve.
@@ -242,7 +285,9 @@ void loop()
 			fail("control pipe read failed");
 		flag_collect_cover = flags & (1 << 0);
 		flag_dedup_cover = flags & (1 << 1);
-		flag_collect_dir_status = flags & (1 << 2);
+		flag_collect_fs_state = flags & (1 << 2);
+
+		uint32_t* state_pos = state_open();
 
 		int pid = fork();
 		if (pid < 0)
@@ -314,6 +359,7 @@ void loop()
 		if (status == kErrorStatus)
 			error("child errored");
 
+		state_write(cwdbuf, state_pos);
 #if !defined(SYZ_FS_DEBUG)
 		remove_dir(cwdbuf);
 #endif
@@ -332,21 +378,6 @@ void encode_state(const std::map<std::string, std::string>& state, unsigned char
 	std::string state_str = ss.str();
 	debug("encode_state: %s\n", state_str.c_str());
 	SHA1((unsigned char*)state_str.c_str(), state_str.length(), hash);
-}
-
-static void record_state()
-{
-	std::map<std::string, std::string> state;
-	update_state(".", state);
-
-	unsigned char hash[SHA_DIGEST_LENGTH];
-	encode_state(state, hash);
-
-	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t);
-	write_output((uint32_t)size);
-	for (uint32_t i = 0; i < size; i++) {
-		write_output((uint32_t)((uint32_t*)hash)[i]);
-	}
 }
 
 void execute_one()
@@ -457,11 +488,6 @@ retry:
 			execute_call(th);
 			handle_completion(th);
 		}
-	}
-
-	if (!collide && flag_collect_dir_status) {
-		debug("collecting fs state\n");
-		record_state();
 	}
 
 	if (flag_collide && !collide) {
