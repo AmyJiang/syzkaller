@@ -41,9 +41,10 @@ import (
 )
 
 var (
-	flagConfig = flag.String("config", "", "configuration file")
-	flagDebug  = flag.Bool("debug", false, "dump all VM output to console")
-	flagBench  = flag.String("bench", "", "write execution statistics into this file periodically")
+	flagConfig      = flag.String("config", "", "configuration file")
+	flagDebug       = flag.Bool("debug", false, "dump all executor to console")
+	flagDebugFuzzer = flag.Bool("debugf", false, "dump all fuzzer log to console")
+	flagBench       = flag.String("bench", "", "write execution statistics into this file periodically")
 )
 
 type Manager struct {
@@ -102,7 +103,7 @@ func main() {
 	if err != nil {
 		Fatalf("%v", err)
 	}
-	if *flagDebug {
+	if *flagDebug || *flagDebugFuzzer {
 		cfg.Debug = true
 		cfg.Count = 1
 	}
@@ -459,9 +460,11 @@ func (mgr *Manager) runInstance(vmCfg *vm.Config, first bool) (*Crash, error) {
 	fuzzerV := 0
 	procs := mgr.cfg.Procs
 	if *flagDebug {
-		//		fuzzerV = 100
-		fuzzerV = 1
 		procs = 1
+	}
+	if *flagDebugFuzzer {
+		procs = 1
+		fuzzerV = 100
 	}
 
 	// Run the fuzzer binary.
