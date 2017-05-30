@@ -95,11 +95,9 @@ func DefaultFlags() (uint64, time.Duration, error) {
 	default:
 		return 0, 0, fmt.Errorf("flag sandbox must contain one of none/setuid/namespace")
 	}
-	/*
-		    if *flagDebug {
-				flags |= FlagDebug
-			}
-	*/
+	if *flagDebug {
+		flags |= FlagDebug
+	}
 	return flags, *flagTimeout, nil
 }
 
@@ -169,6 +167,35 @@ func MakeEnv(bin string, timeout time.Duration, flags uint64, pid int) (*Env, er
 	return env, nil
 }
 
+func (env *Env) CloseWithoutRm() error {
+	for _, cmd := range env.cmds {
+		if cmd != nil {
+			if cmd.cmd != nil {
+				cmd.kill()
+				cmd.cmd.Wait()
+			}
+			if cmd.inrp != nil {
+				cmd.inrp.Close()
+			}
+			if cmd.outwp != nil {
+				cmd.outwp.Close()
+			}
+
+		}
+	}
+
+	err1 := closeMapping(env.inFile, env.In)
+	err2 := closeMapping(env.outFile, env.Out)
+	switch {
+	case err1 != nil:
+		return err1
+	case err2 != nil:
+		return err2
+	default:
+		return nil
+	}
+}
+
 func (env *Env) Close() error {
 	for _, cmd := range env.cmds {
 		if cmd != nil {
@@ -202,7 +229,7 @@ type CallInfo struct {
 // failed: true if executor has detected a kernel bug
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
-func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, states []uint32) {
+func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, states []uint32) {
 	if p != nil {
 		// Copy-in serialized program.
 		if err := p.SerializeForExec(env.In, env.pid); err != nil {
@@ -232,7 +259,7 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir str
 		}
 	}
 	var restart bool
-	output, failed, hanged, restart, err0 = env.cmds[rootDir].exec(cover, dedup, needDirStatus)
+	output, failed, hanged, restart, err0 = env.cmds[rootDir].exec(cover, dedup, needFsState)
 	if err0 != nil || restart {
 		env.cmds[rootDir].close()
 		env.cmds[rootDir] = nil
@@ -243,14 +270,14 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needDirStatus bool, rootDir str
 		return
 	}
 
-	if env.flags&FlagSignal != 0 || needDirStatus {
-		info, err0, states = env.readOutCoverage(p, needDirStatus)
+	if env.flags&FlagSignal != 0 || needFsState {
+		info, err0, states = env.readOutCoverage(p, needFsState)
 	}
 
 	return
 }
 
-func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallInfo, err0 error, states []uint32) {
+func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo, err0 error, state []uint32) {
 	out := ((*[1 << 28]uint32)(unsafe.Pointer(&env.Out[0])))[:len(env.Out)/int(unsafe.Sizeof(uint32(0)))]
 	readOut := func(v *uint32) bool {
 		if len(out) == 0 {
@@ -259,6 +286,25 @@ func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallIn
 		*v = out[0]
 		out = out[1:]
 		return true
+	}
+
+	info = nil
+	err0 = nil
+	state = nil
+	var stateSize uint32
+	if needFsState {
+		//        fmt.Printf("[FsState]: pos = %v\n", ((*uint32)out))
+		if !readOut(&stateSize) {
+			err0 = fmt.Errorf("executor %v: failed to read filesystem status", env.pid)
+			return
+		}
+		if stateSize != 5 {
+			fmt.Printf("[FsState]: size = %v\n", stateSize)
+			err0 = fmt.Errorf("executor %v: corrupted filesystem status", env.pid)
+			return
+		}
+		state = out[:stateSize:stateSize]
+		out = out[stateSize:]
 	}
 
 	var ncmd uint32
@@ -318,22 +364,6 @@ func (env *Env) readOutCoverage(p *prog.Prog, needDirStatus bool) (info []CallIn
 		}
 		info[callIndex].Cover = out[:coverSize:coverSize]
 		out = out[coverSize:]
-	}
-
-	states = nil
-	var statesSize uint32
-	if needDirStatus {
-		if !readOut(&statesSize) {
-			err0 = fmt.Errorf("executor %v: failed to read dir status", env.pid)
-			return
-		}
-		if statesSize != 5 {
-			fmt.Printf("[OutputDirStatus]: size = %v\n", statesSize)
-			// err0 = fmt.Errorf("executor %v: wrong directory status size", env.pid)
-			return
-		}
-		states = out[:statesSize:statesSize]
-		out = out[statesSize:]
 	}
 
 	return
@@ -547,7 +577,7 @@ func (c *command) kill() {
 	syscall.Kill(c.cmd.Process.Pid, syscall.SIGKILL)
 }
 
-func (c *command) exec(cover, dedup, needDirStatus bool) (output []byte, failed, hanged, restart bool, err0 error) {
+func (c *command) exec(cover, dedup, needFsState bool) (output []byte, failed, hanged, restart bool, err0 error) {
 	var flags [1]byte
 	if cover {
 		flags[0] |= 1 << 0
@@ -555,7 +585,7 @@ func (c *command) exec(cover, dedup, needDirStatus bool) (output []byte, failed,
 			flags[0] |= 1 << 1
 		}
 	}
-	if needDirStatus {
+	if needFsState {
 		flags[0] |= 1 << 2
 	}
 	if _, err := c.outwp.Write(flags[:]); err != nil {

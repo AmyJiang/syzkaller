@@ -17,6 +17,7 @@ var (
 	flagTestfs   = flag.String("testfs", "./", "a colon-separated list of test filesystems")
 	flagExecutor = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagProg     = flag.String("prog", "", "diff-inducing program to reproduce")
+	flagMinimize = flag.Bool("min", false, "minimize input program")
 	testfs       []string
 )
 
@@ -89,7 +90,7 @@ func isDiscrepancy(states [][]uint32) bool {
 
 func reproduce() error {
 	env, err := initExecutor()
-	defer env.Close()
+	defer env.CloseWithoutRm()
 
 	if err != nil {
 		return err
@@ -107,6 +108,10 @@ func reproduce() error {
 
 	if !isDiscrepancy(states) {
 		return fmt.Errorf("failed to reproduce discrepancy")
+	}
+
+	if !*flagMinimize {
+		return nil
 	}
 
 	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
