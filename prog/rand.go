@@ -285,7 +285,8 @@ func (r *randGen) timespec(s *state, typ *sys.StructType, usec bool) (arg *Arg, 
 				constArg(meta.Args[0], sys.CLOCK_REALTIME),
 				tpaddr,
 			},
-			Ret: returnArg(meta.Ret),
+			Ret:  returnArg(meta.Ret),
+			User: U1,
 		}
 		calls = append(calls, gettime)
 		sec := resultArg(typ.Fields[0], tp.Inner[0])
@@ -302,6 +303,7 @@ func (r *randGen) timespec(s *state, typ *sys.StructType, usec bool) (arg *Arg, 
 }
 
 // createMmapCall creates a "normal" mmap call that maps [start, start+npages) page range.
+// FIXME: mmap user?
 func createMmapCall(start, npages uintptr) *Call {
 	meta := sys.CallMap["mmap"]
 	mmap := &Call{
@@ -314,7 +316,8 @@ func createMmapCall(start, npages uintptr) *Call {
 			constArg(meta.Args[4], sys.InvalidFD),
 			constArg(meta.Args[5], 0),
 		},
-		Ret: returnArg(meta.Ret),
+		Ret:  returnArg(meta.Ret),
+		User: U1,
 	}
 	return mmap
 }
@@ -555,6 +558,7 @@ func (r *randGen) generateParticularCall(s *state, meta *sys.Call) (calls []*Cal
 	c := &Call{
 		Meta: meta,
 		Ret:  returnArg(meta.Ret),
+		User: U1,
 	}
 	c.Args, calls = r.generateArgs(s, meta.Args)
 	assignSizesCall(c)

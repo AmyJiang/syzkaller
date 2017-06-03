@@ -53,9 +53,9 @@ func TestMutateTable(t *testing.T) {
 			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
 				"pipe2(&(0x7f0000000000)={0x0, 0x0}, 0x0)\n",
 
-			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
-				"sched_yield()\n" +
-				"pipe2(&(0x7f0000000000)={0x0, 0x0}, 0x0)\n",
+			"1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
+				"1000:sched_yield()\n" +
+				"1000:pipe2(&(0x7f0000000000)={0x0, 0x0}, 0x0)\n",
 		},
 		// Remove calls and update args.
 		{
@@ -64,9 +64,9 @@ func TestMutateTable(t *testing.T) {
 				"read(r0, &(0x7f0000000000)=0x0, 0x1)\n" +
 				"sched_yield()\n",
 
-			"sched_yield()\n" +
-				"read(0xffffffffffffffff, &(0x7f0000000000)=0x0, 0x1)\n" +
-				"sched_yield()\n",
+			"1000:sched_yield()\n" +
+				"1000:read(0xffffffffffffffff, &(0x7f0000000000)=0x0, 0x1)\n" +
+				"1000:sched_yield()\n",
 		},
 		// Mutate flags.
 		{
@@ -75,34 +75,46 @@ func TestMutateTable(t *testing.T) {
 				"read(r0, &(0x7f0000000000)=0x0, 0x1)\n" +
 				"sched_yield()\n",
 
-			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x2)\n" +
+			"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x2)\n" +
+				"1000:sched_yield()\n" +
+				"1000:read(r0, &(0x7f0000000000)=0x0, 0x1)\n" +
+				"1000:sched_yield()\n",
+		},
+		// Mutate user.
+		{
+			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
 				"sched_yield()\n" +
 				"read(r0, &(0x7f0000000000)=0x0, 0x1)\n" +
 				"sched_yield()\n",
+
+			"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x2)\n" +
+				"1000:sched_yield()\n" +
+				"1001:read(r0, &(0x7f0000000000)=0x0, 0x1)\n" +
+				"1000:sched_yield()\n",
 		},
 		// Mutate data (delete byte and update size).
 		{
 			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
 				"write(r0, &(0x7f0000000000)=\"11223344\", 0x4)\n",
 
-			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
-				"write(r0, &(0x7f0000000000)=\"112244\", 0x3)\n",
+			"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
+				"1000:write(r0, &(0x7f0000000000)=\"112244\", 0x3)\n",
 		},
 		// Mutate data (insert byte and update size).
 		{
 			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
 				"write(r0, &(0x7f0000000000)=\"1122\", 0x2)\n",
 
-			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
-				"write(r0, &(0x7f0000000000)=\"112255\", 0x3)\n",
+			"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
+				"1000:write(r0, &(0x7f0000000000)=\"112255\", 0x3)\n",
 		},
 		// Mutate data (change byte).
 		{
 			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
 				"write(r0, &(0x7f0000000000)=\"1122\", 0x2)\n",
 
-			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
-				"write(r0, &(0x7f0000000000)=\"1155\", 0x2)\n",
+			"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
+				"1000:write(r0, &(0x7f0000000000)=\"1155\", 0x2)\n",
 		},
 		// Change filename.
 		{
@@ -110,18 +122,18 @@ func TestMutateTable(t *testing.T) {
 				"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
 				"write(r0, &(0x7f0000000000)=\"\", 0x0)\n",
 
-			"open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
-				"r0 = open(&(0x7f0000001000)=\"2e2f66696c653100\", 0x22c0, 0x1)\n" +
-				"write(r0, &(0x7f0000000000)=\"\", 0x0)\n",
+			"1000:open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
+				"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653100\", 0x22c0, 0x1)\n" +
+				"1000:write(r0, &(0x7f0000000000)=\"\", 0x0)\n",
 		},
 		// Extend an array.
 		{
 			"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
 				"readv(r0, &(0x7f0000000000)=[{&(0x7f0000001000)=\"00\", 0x1}, {&(0x7f0000002000)=\"00\", 0x2}], 0x2)\n",
 
-			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
-				"r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
-				"readv(r0, &(0x7f0000000000)=[{&(0x7f0000001000)=\"00\", 0x1}, {&(0x7f0000002000)=\"00\", 0x2}, {&(0x7f0000000000)=\"00\", 0x3}], 0x3)\n",
+			"1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
+				"1000:r0 = open(&(0x7f0000001000)=\"2e2f66696c653000\", 0x22c0, 0x1)\n" +
+				"1000:readv(r0, &(0x7f0000000000)=[{&(0x7f0000001000)=\"00\", 0x1}, {&(0x7f0000002000)=\"00\", 0x2}, {&(0x7f0000000000)=\"00\", 0x3}], 0x3)\n",
 		},
 	}
 	rs, _ := initTest(t)
@@ -171,9 +183,9 @@ func TestMinimize(t *testing.T) {
 				}
 				return false
 			},
-			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
-				"sched_yield()\n" +
-				"pipe2(&(0x7f0000000000)={0x0, 0x0}, 0x0)\n",
+			"1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)\n" +
+				"1000:sched_yield()\n" +
+				"1000:pipe2(&(0x7f0000000000)={0x0, 0x0}, 0x0)\n",
 			2,
 		},
 		// Remove a call.
@@ -186,8 +198,8 @@ func TestMinimize(t *testing.T) {
 				// Aim at removal of sched_yield.
 				return len(p.Calls) == 2 && p.Calls[0].Meta.Name == "mmap" && p.Calls[1].Meta.Name == "pipe2"
 			},
-			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
-				"pipe2(&(0x7f0000000000)={0xffffffffffffffff, 0xffffffffffffffff}, 0x0)\n",
+			"1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
+				"1000:pipe2(&(0x7f0000000000)={0xffffffffffffffff, 0xffffffffffffffff}, 0x0)\n",
 			1,
 		},
 		// Remove two dependent calls.
@@ -206,7 +218,7 @@ func TestMinimize(t *testing.T) {
 				}
 				return false
 			},
-			"sched_yield()\n",
+			"1000:sched_yield()\n",
 			0,
 		},
 		// Remove a call and replace results.
@@ -219,9 +231,9 @@ func TestMinimize(t *testing.T) {
 			func(p *Prog, callIndex int) bool {
 				return p.String() == "mmap-write-sched_yield"
 			},
-			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
-				"write(0xffffffffffffffff, &(0x7f0000000000)=\"\", 0x0)\n" +
-				"sched_yield()\n",
+			"1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
+				"1000:write(0xffffffffffffffff, &(0x7f0000000000)=\"\", 0x0)\n" +
+				"1000:sched_yield()\n",
 			2,
 		},
 		// Remove a call and replace results.
@@ -234,9 +246,9 @@ func TestMinimize(t *testing.T) {
 			func(p *Prog, callIndex int) bool {
 				return p.String() == "mmap-write-sched_yield"
 			},
-			"mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
-				"write(0xffffffffffffffff, &(0x7f0000000000)=\"\", 0x0)\n" +
-				"sched_yield()\n",
+			"1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
+				"1000:write(0xffffffffffffffff, &(0x7f0000000000)=\"\", 0x0)\n" +
+				"1000:sched_yield()\n",
 			-1,
 		},
 		// Glue several mmaps together.
@@ -250,9 +262,9 @@ func TestMinimize(t *testing.T) {
 			func(p *Prog, callIndex int) bool {
 				return p.String() == "mmap-sched_yield-getpid"
 			},
-			"mmap(&(0x7f0000000000/0x7000)=nil, (0x7000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
-				"sched_yield()\n" +
-				"getpid()\n",
+			"1000:mmap(&(0x7f0000000000/0x7000)=nil, (0x7000), 0x0, 0x0, 0xffffffffffffffff, 0x0)\n" +
+				"1000:sched_yield()\n" +
+				"1000:getpid()\n",
 			2,
 		},
 	}

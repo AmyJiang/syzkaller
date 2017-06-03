@@ -10,15 +10,22 @@ import (
 )
 
 type Prog struct {
-	Calls    []*Call
-	PrevProg *Prog
+	Calls []*Call
 }
 
 type Call struct {
 	Meta *sys.Call
 	Args []*Arg
 	Ret  *Arg
+	User Uid
 }
+
+type Uid uint32
+
+const (
+	U1 Uid = iota + 1000
+	U2
+)
 
 type Arg struct {
 	Type         sys.Type

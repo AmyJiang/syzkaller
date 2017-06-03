@@ -22,6 +22,9 @@ func (p *Prog) String() string {
 			fmt.Fprintf(buf, "-")
 		}
 		fmt.Fprintf(buf, "%v", c.Meta.Name)
+		if c.User != U1 {
+			fmt.Fprintf(buf, ":%v", c.User)
+		}
 	}
 	return buf.String()
 }
@@ -36,6 +39,7 @@ func (p *Prog) Serialize() []byte {
 	vars := make(map[*Arg]int)
 	varSeq := 0
 	for _, c := range p.Calls {
+		fmt.Fprintf(buf, "%v:", c.User)
 		if len(c.Ret.Uses) != 0 {
 			fmt.Fprintf(buf, "r%v = ", varSeq)
 			vars[c.Ret] = varSeq
@@ -126,13 +130,23 @@ func Deserialize(data []byte) (prog *Prog, err error) {
 		if p.EOF() || p.Char() == '#' {
 			continue
 		}
+
 		name := p.Ident()
+		user := 1000
+		if _, err := fmt.Sscanf(name, "%d", &user); err == nil {
+			if p.Char() == ':' {
+				p.Parse(':')
+				name = p.Ident()
+			}
+		} else {
+			user = 1000
+		}
+
 		r := ""
 		if p.Char() == '=' {
 			r = name
 			p.Parse('=')
 			name = p.Ident()
-
 		}
 		meta := sys.CallMap[name]
 		if meta == nil {
@@ -141,6 +155,7 @@ func Deserialize(data []byte) (prog *Prog, err error) {
 		c := &Call{
 			Meta: meta,
 			Ret:  returnArg(meta.Ret),
+			User: Uid(user),
 		}
 		prog.Calls = append(prog.Calls, c)
 		p.Parse('(')
@@ -545,6 +560,15 @@ func CallSet(data []byte) (map[string]struct{}, error) {
 			}
 			call = call[eq:]
 		}
+
+		if eq := bytes.IndexByte(call, ':'); eq != -1 {
+			eq++
+			for eq < len(call) && call[eq] == ' ' {
+				eq++
+			}
+			call = call[eq:]
+		}
+
 		if len(call) == 0 {
 			return nil, fmt.Errorf("call name is empty")
 		}

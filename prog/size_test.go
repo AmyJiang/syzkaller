@@ -133,7 +133,7 @@ func TestAssignSize(t *testing.T) {
 			assignSizesCall(call)
 		}
 		p1 := strings.TrimSpace(string(p.Serialize()))
-		if p1 != test.sizedProg {
+		if p1 != "1000:"+test.sizedProg {
 			t.Fatalf("failed to assign sizes in prog %v\ngot  %v\nwant %v", i, p1, test.sizedProg)
 		}
 	}

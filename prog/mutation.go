@@ -12,11 +12,25 @@ import (
 	"github.com/google/syzkaller/sys"
 )
 
+func callsByUser1(p *Prog) []int {
+	var calls_idx []int
+	for idx := 0; idx < len(p.Calls); idx++ {
+		if p.Calls[idx].Meta.Name == "mmap" {
+			continue
+		}
+		if p.Calls[idx].User == U1 {
+			calls_idx = append(calls_idx, idx)
+		}
+	}
+	return calls_idx
+}
+
 func (p *Prog) Mutate(rs rand.Source, ncalls int, ct *ChoiceTable, corpus []*Prog) {
 	r := newRand(rs)
 
 	retry := false
 	for stop := false; !stop || retry; stop = r.oneOf(3) {
+		user1Calls := callsByUser1(p)
 		retry = false
 		switch {
 		case r.nOutOf(1, 100):
@@ -46,6 +60,12 @@ func (p *Prog) Mutate(rs rand.Source, ncalls int, ct *ChoiceTable, corpus []*Pro
 			s := analyze(ct, p, c)
 			calls := r.generateCall(s, p)
 			p.insertBefore(c, calls)
+		case len(user1Calls) > 0 && r.nOutOf(3, 10):
+			// FIXME: remove repetition
+			// change uid of a random call
+			idx := r.Intn(len(user1Calls))
+			c := p.Calls[user1Calls[idx]]
+			c.User = U2
 		case r.nOutOf(10, 11):
 			// Change args of a call.
 			if len(p.Calls) == 0 {

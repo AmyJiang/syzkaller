@@ -70,6 +70,7 @@ func (p *Prog) SerializeForExec(buffer []byte, pid int) error {
 		})
 		// Generate the call itself.
 		w.write(uintptr(c.Meta.ID))
+		w.write(uintptr(c.User))
 		w.write(uintptr(len(c.Args)))
 		for _, arg := range c.Args {
 			w.writeArg(arg, pid, csumMap)

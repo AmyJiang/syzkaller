@@ -10,6 +10,7 @@ func (p *Prog) Clone() *Prog {
 		c1 := new(Call)
 		c1.Meta = c.Meta
 		c1.Ret = c.Ret.clone(c1, newargs)
+		c1.User = c.User
 		for _, arg := range c.Args {
 			c1.Args = append(c1.Args, arg.clone(c1, newargs))
 		}
