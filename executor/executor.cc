@@ -108,6 +108,7 @@ struct thread_t {
 	int call_n;
 	int call_index;
 	int call_num;
+	uint64_t call_user;
 	int num_args;
 	uintptr_t args[kMaxArgs];
 	uint64_t res;
@@ -125,7 +126,7 @@ uint64_t read_result(uint64_t** input_posp);
 uint32_t* write_output(uint32_t v);
 void copyin(char* addr, uint64_t val, uint64_t size, uint64_t bf_off, uint64_t bf_len);
 uint64_t copyout(char* addr, uint64_t size);
-thread_t* schedule_call(int n, int call_index, int call_num, uint64_t num_args, uint64_t* args, uint64_t* pos);
+thread_t* schedule_call(int n, int call_index, int call_num, uint64_t call_user, uint64_t num_args, uint64_t* args, uint64_t* pos);
 void execute_call(thread_t* th);
 void handle_completion(thread_t* th);
 void thread_create(thread_t* th, int id);
@@ -140,6 +141,8 @@ static bool dedup(uint32_t sig);
 uint32_t* state_open();
 void state_write(const char* cwdbuf, uint32_t* pos);
 static void encode_state(const std::map<std::string, std::string>& state, unsigned char* hash);
+int user_set(thread_t* th);
+int user_reset(thread_t* th);
 
 int main(int argc, char** argv)
 {
@@ -274,8 +277,13 @@ void loop()
 		// Create a new private work dir for this test (removed at the end of the loop).
 		char cwdbuf[256];
 		sprintf(cwdbuf, "./%d", iter);
-		if (mkdir(cwdbuf, 0777))
+		if (mkdir(cwdbuf, 0777)) {
 			fail("failed to mkdir");
+		}
+
+		if (chmod(cwdbuf, 0777)) {
+			fail("failed to chmod: %d", cwdbuf);
+		}
 
 		// TODO: consider moving the read into the child.
 		// Potentially it can speed up things a bit -- when the read finishes
@@ -299,6 +307,7 @@ void loop()
 				fail("failed to chdir");
 			close(kInPipeFd);
 			close(kOutPipeFd);
+			debug("execute_one() process: ruid=%d; euid=%d\n", getuid(), geteuid());
 			execute_one();
 			debug("worker exiting\n");
 			doexit(0);
@@ -435,6 +444,7 @@ retry:
 		}
 
 		// Normal syscall.
+		uint64_t call_user = read_input(&input_pos);
 		if (call_num >= sizeof(syscalls) / sizeof(syscalls[0]))
 			fail("invalid command number %lu", call_num);
 		uint64_t num_args = read_input(&input_pos);
@@ -445,7 +455,7 @@ retry:
 			args[i] = read_arg(&input_pos);
 		for (uint64_t i = num_args; i < 6; i++)
 			args[i] = 0;
-		thread_t* th = schedule_call(n, call_index++, call_num, num_args, args, input_pos);
+		thread_t* th = schedule_call(n, call_index++, call_num, call_user, num_args, args, input_pos);
 
 		if (collide && (call_index % 2) == 0) {
 			// Don't wait for every other call.
@@ -497,7 +507,7 @@ retry:
 	}
 }
 
-thread_t* schedule_call(int n, int call_index, int call_num, uint64_t num_args, uint64_t* args, uint64_t* pos)
+thread_t* schedule_call(int n, int call_index, int call_num, uint64_t call_user, uint64_t num_args, uint64_t* args, uint64_t* pos)
 {
 	// Find a spare thread to execute the call.
 	int i;
@@ -523,6 +533,7 @@ thread_t* schedule_call(int n, int call_index, int call_num, uint64_t num_args, 
 	th->call_n = n;
 	th->call_index = call_index;
 	th->call_num = call_num;
+	th->call_user = call_user;
 	th->num_args = num_args;
 	for (int i = 0; i < kMaxArgs; i++)
 		th->args[i] = args[i];
@@ -652,6 +663,32 @@ void* worker_thread(void* arg)
 	return 0;
 }
 
+int user_set(thread_t* th)
+{
+	// FIXME: switch uid
+	const int euid = th->call_user;
+	if (syscall(SYS_setresgid, -1, euid, -1)) {
+		return -1;
+	}
+	if (syscall(SYS_setresuid, -1, euid, -1)) {
+		return -1;
+	}
+	debug("#%d: set(%d) ruid=%d; euid=%d\n", th->id, euid, getuid(), geteuid());
+	return 0;
+}
+
+int user_reset(thread_t* th)
+{
+	if (syscall(SYS_setresgid, -1, 0, -1)) {
+		return -1;
+	}
+	if (syscall(SYS_setresuid, -1, 0, -1)) {
+		return -1;
+	}
+	debug("#%d: reset ruid=%d; euid=%d\n", th->id, getuid(), geteuid());
+	return 0;
+}
+
 void execute_call(thread_t* th)
 {
 	th->ready = false;
@@ -664,11 +701,19 @@ void execute_call(thread_t* th)
 	}
 	debug(")\n");
 
+	if (user_set(th)) {
+		// FIXME: coverage?
+		fail("user_set(%d) failed", th->call_user);
+	}
+
 	cover_reset(th);
 	th->res = execute_syscall(call->sys_nr, th->args[0], th->args[1], th->args[2], th->args[3], th->args[4], th->args[5], th->args[6], th->args[7], th->args[8]);
 	th->reserrno = errno;
 	th->cover_size = cover_read(th);
 
+	if (user_reset(th)) {
+		fail("user_reset(%d) failed", th->call_user);
+	}
 	if (th->res == (uint64_t)-1) {
 		debug("#%d: %s = errno(%ld)\n", th->id, call->name, th->reserrno);
 	}
