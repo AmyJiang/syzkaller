@@ -445,7 +445,7 @@ func makeCommand(pid int, bin []string, timeout time.Duration, flags uint64, inF
 		}
 	}()
 
-	if flags&(FlagSandboxSetuid|FlagSandboxNamespace) != 0 {
+	if true || flags&(FlagSandboxSetuid|FlagSandboxNamespace) != 0 {
 		if err := os.Chmod(dir, 0777); err != nil {
 			return nil, fmt.Errorf("failed to chmod temp dir: %v", err)
 		}
