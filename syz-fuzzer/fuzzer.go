@@ -212,6 +212,12 @@ func main() {
 		leakCallback = nil
 	}
 
+	for _, dir := range rootDirs {
+		if err := os.Chmod(dir, 0777); err != nil {
+			panic(fmt.Errorf("failed to chmod %v: %v", dir, err))
+		}
+	}
+
 	var dbgEnv *ipc.Env
 	// FIXME: always set FlagDebug to print executor output?
 	dbgEnv, err = ipc.MakeEnv(*flagExecutor+".dbg", timeout, flags|ipc.FlagDebug, 10000)
@@ -261,7 +267,7 @@ func main() {
 						inp := triageCandidate[last]
 						triageCandidate = triageCandidate[:last]
 						triageMu.Unlock()
-						Logf(1, "triaging candidate: %s", inp.p)
+						Logf(2, "triaging candidate: %s", inp.p)
 						triageInput(pid, env, inp)
 						continue
 					} else if len(candidates) != 0 {
@@ -284,7 +290,7 @@ func main() {
 						inp := triage[last]
 						triage = triage[:last]
 						triageMu.Unlock()
-						Logf(1, "triaging : %s", inp.p)
+						Logf(2, "triaging : %s", inp.p)
 						triageInput(pid, env, inp)
 						continue
 					} else {
@@ -304,9 +310,12 @@ func main() {
 				} else {
 					// Mutate an existing prog.
 					p := corpus[rnd.Intn(len(corpus))].Clone()
-					Logf(1, "mutating: %s", p)
 					corpusMu.RUnlock()
 					p.Mutate(rs, programLength, ct, corpus)
+					Logf(1, "mutating: %s", p)
+					if len(p.Calls) == 0 {
+						continue
+					}
 					execute(pid, env, p, false, false, false, &statExecFuzz)
 				}
 			}
@@ -578,10 +587,10 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 }
 
 func isDiscrepancy(states [][]uint32) bool {
+	// false if statets is nil
 	for i := 1; i < len(states); i += 1 {
-		// FIXME: executor fails before handle_completion
 		if len(states[i]) != len(states[i-1]) {
-			break
+			return true
 		}
 		for j, v := range states[i-1] {
 			if v != states[i][j] {
@@ -594,6 +603,13 @@ func isDiscrepancy(states [][]uint32) bool {
 
 // minimize a diff-inducing program
 func minimizeDiff(pid int, env *ipc.Env, p *prog.Prog) *prog.Prog {
+	// reproduce
+	_, states := execute1(pid, env, p, &statExecDiff, false, true)
+	if !isDiscrepancy(states) {
+		Logf(1, "reproducing: %s from %v failed", p, *flagName)
+		return nil
+	}
+
 	Logf(1, "minimizing: %s from %v", p, *flagName)
 	// FIXME: how does prog.Minimize work entirely
 	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
