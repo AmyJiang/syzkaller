@@ -21,6 +21,11 @@ type Instance interface {
 	// Copy copies a hostSrc file into vm and returns file name in vm.
 	Copy(hostSrc string) (string, error)
 
+	CopyTo(hostSrc string, basePath string) (string, error)
+
+	// MoveOut moves a file from vm into a host directory
+	MoveOut(vmSrc string, hostDir string) error
+
 	// Forward setups forwarding from within VM to host port port
 	// and returns address to use in VM.
 	Forward(port int) (string, error)

@@ -326,6 +326,63 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 	return vmDst, nil
 }
 
+func (inst *instance) CopyTo(hostSrc string, basePath string) (string, error) {
+	vmDst := filepath.Join(basePath, filepath.Base(hostSrc))
+	args := append(inst.sshArgs("-P"), hostSrc, "root@localhost:"+vmDst)
+	cmd := exec.Command("scp", args...)
+	if inst.cfg.Debug {
+		Logf(0, "running command: scp %#v", args)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stdout
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	done := make(chan bool)
+	go func() {
+		select {
+		case <-time.After(3 * time.Minute):
+			cmd.Process.Kill()
+		case <-done:
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
+		return "", err
+	}
+	return vmDst, nil
+}
+
+func (inst *instance) MoveOut(vmSrc string, hostDir string) error {
+	args := append(inst.sshArgs("-P"), "root@localhost:/"+vmSrc, hostDir)
+	cmd := exec.Command("scp", args...)
+
+	//FIXME: remove dbg info
+	if inst.cfg.Debug {
+		Logf(0, "running command: scp %#v", args)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stdout
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan bool)
+	go func() {
+		select {
+		case <-time.After(3 * time.Minute):
+			cmd.Process.Kill()
+		case <-done:
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (<-chan []byte, <-chan error, error) {
 	rpipe, wpipe, err := vm.LongPipe()
 	if err != nil {

@@ -338,6 +338,14 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 	return vmDst, nil
 }
 
+func (inst *instance) CopyTo(hostSrc string, basePath string) (string, error) {
+	return "", fmt.Errorf("CopyTo operation is not implemented")
+}
+
+func (inst *instance) MoveOut(vmSrc string, hostDir string) error {
+	return fmt.Errorf("MoveOut operation is not implemented")
+}
+
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (<-chan []byte, <-chan error, error) {
 	var tty io.ReadCloser
 	var err error
