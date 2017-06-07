@@ -6,7 +6,7 @@ ifeq ($(NOSTATIC), 0)
 	STATIC_FLAG=-static
 endif
 
-.PHONY: all format clean manager fuzzer executor execprog mutate prog2c stress extract generate repro
+.PHONY: all format clean manager fuzzer executor execprog mutate prog2c stress extract generate repro reprodiff
 
 all:
 	$(MAKE) generate
@@ -14,7 +14,8 @@ all:
 	$(MAKE) manager
 	$(MAKE) fuzzer
 	$(MAKE) dbtool
-#	$(MAKE) execprog
+	$(MAKE) execprog
+	$(MAKE) reprodiff
 	$(MAKE) executor
 
 all-tools: execprog mutate prog2c stress repro upgrade
