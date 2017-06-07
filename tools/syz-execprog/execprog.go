@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -30,6 +31,8 @@ var (
 	flagRepeat    = flag.Int("repeat", 1, "repeat execution that many times (0 for infinite loop)")
 	flagProcs     = flag.Int("procs", 1, "number of parallel processes to execute programs")
 	flagOutput    = flag.String("output", "none", "write programs to none/stdout")
+	flagTestfs    = flag.String("testfs", "", "a colon-separated list of test filesystems")
+	testfs        []string
 )
 
 func main() {
@@ -66,6 +69,11 @@ func main() {
 		flags |= ipc.FlagSignal
 		needCover = true
 		dedupCover = false
+	}
+
+	if *flagTestfs == "" {
+		Fatalf("Must specify two or more test filesystems")
+		testfs = strings.Split(*flagTestfs, ":")
 	}
 
 	handled := make(map[string]bool)
@@ -119,16 +127,29 @@ func main() {
 						Logf(0, "executing program %v:\n%s", pid, data)
 						logMu.Unlock()
 					}
-					output, info, failed, hanged, err := env.Exec(p, needCover, dedupCover)
-					if atomic.LoadUint32(&shutdown) != 0 {
-						return false
+
+					info := make([]ipc.CallInfo, len(p.Calls))
+					for _, fs := range testfs {
+						output, info_per_fs, failed, hanged, err, _, _ := env.Exec(p, needCover, dedupCover, false, fs)
+						if atomic.LoadUint32(&shutdown) != 0 {
+							return false
+						}
+						if failed {
+							fmt.Printf("BUG: executor-detected bug:\n%s", output)
+						}
+						if flags&ipc.FlagDebug != 0 || err != nil {
+							fmt.Printf("result: failed=%v hanged=%v err=%v\n\n%s", failed, hanged, err, output)
+						}
+						for call, inf := range info_per_fs {
+							info[call].Signal = append(info[call].Signal, inf.Signal...)
+							info[call].Cover = append(info[call].Cover, inf.Cover...)
+							info[call].Errnos = append(info[call].Errnos, inf.Errno)
+							if inf.Errno != 0 {
+								info[call].Errno = inf.Errno // TODO
+							}
+						}
 					}
-					if failed {
-						fmt.Printf("BUG: executor-detected bug:\n%s", output)
-					}
-					if flags&ipc.FlagDebug != 0 || err != nil {
-						fmt.Printf("result: failed=%v hanged=%v err=%v\n\n%s", failed, hanged, err, output)
-					}
+
 					if *flagCoverFile != "" {
 						// Coverage is dumped in sanitizer format.
 						// github.com/google/sanitizers/tools/sancov command can be used to dump PCs,
