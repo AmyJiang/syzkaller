@@ -229,7 +229,9 @@ type CallInfo struct {
 // failed: true if executor has detected a kernel bug
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
-func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, states []uint32) {
+func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, states []uint32, workdir string) {
+	workdir = ""
+
 	if p != nil {
 		// Copy-in serialized program.
 		if err := p.SerializeForExec(env.In, env.pid); err != nil {
@@ -258,6 +260,8 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir strin
 			return
 		}
 	}
+	workdir = env.cmds[rootDir].dir
+
 	var restart bool
 	output, failed, hanged, restart, err0 = env.cmds[rootDir].exec(cover, dedup, needFsState)
 	if err0 != nil || restart {
