@@ -729,10 +729,9 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	case "none":
 		// This case intentionally left blank.
 	case "stdout":
-		//		data := p.Serialize()
+		data := p.Serialize()
 		logMu.Lock()
-		//		Logf(0, "executing program %v:\n%s", pid, data)
-		Logf(2, "executing program %v: %s", pid, p)
+		Logf(0, "executing program %v:\n%s", pid, data)
 		logMu.Unlock()
 	case "dmesg":
 		fd, err := syscall.Open("/dev/kmsg", syscall.O_WRONLY, 0)
@@ -753,7 +752,7 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	try := 0
 retry:
 	atomic.AddUint64(stat, 1)
-	output, info, failed, hanged, err, states := env.Exec(p, needCover, true, needState, rootDir)
+	output, info, failed, hanged, err, states, _ := env.Exec(p, needCover, true, needState, rootDir)
 	if failed {
 		// BUG in output should be recognized by manager.
 		Logf(0, "BUG: executor-detected bug:\n%s", output)
