@@ -331,7 +331,7 @@ func parseSuppressions(cfg *Config) error {
 }
 
 func CreateVMConfig(cfg *Config, index int) (*vm.Config, error) {
-	if index < 0 || index >= cfg.Count {
+	if index < 0 || index >= cfg.Count+1 {
 		return nil, fmt.Errorf("invalid VM index %v (count %v)", index, cfg.Count)
 	}
 	workdir, err := fileutil.ProcessTempDir(cfg.Workdir)
