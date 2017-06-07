@@ -552,6 +552,7 @@ static void setup_main_process()
 	syscall(SYS_rt_sigaction, 0x21, &sa, NULL, 8);
 	install_segv_handler();
 
+#if !defined(SYZ_FS_DEBUG)
 	char tmpdir_template[] = "./syzkaller.XXXXXX";
 	char* tmpdir = mkdtemp(tmpdir_template);
 	if (!tmpdir)
@@ -560,6 +561,7 @@ static void setup_main_process()
 		fail("failed to chmod");
 	if (chdir(tmpdir))
 		fail("failed to chdir");
+#endif
 }
 
 static void loop();
