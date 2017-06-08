@@ -79,9 +79,6 @@ var (
 	triageCandidate []Input
 	candidates      []Candidate
 
-	diffMu sync.RWMutex
-	diffs  []*prog.Prog
-
 	gate *ipc.Gate
 
 	statExecGen       uint64
@@ -218,9 +215,6 @@ func main() {
 		}
 	}
 
-	var dbgEnv *ipc.Env
-	// FIXME: always set FlagDebug to print executor output?
-	dbgEnv, err = ipc.MakeEnv(*flagExecutor+".dbg", timeout, flags|ipc.FlagDebug, 10000)
 	if err != nil {
 		panic(err)
 	}
@@ -242,22 +236,6 @@ func main() {
 			rnd := rand.New(rs)
 
 			for i := 0; ; i++ {
-				diffMu.RLock()
-				if len(diffs) != 0 {
-					diffMu.RUnlock()
-					diffMu.Lock()
-					last := len(diffs) - 1
-					p := diffs[last]
-					diffs = diffs[:last]
-					p1 := minimizeDiff(10000, dbgEnv, p)
-					reportDiff(p, p1)
-
-					diffMu.Unlock()
-					continue
-				} else {
-					diffMu.RUnlock()
-				}
-
 				triageMu.RLock()
 				if len(triageCandidate) != 0 || len(candidates) != 0 || len(triage) != 0 {
 					triageMu.RUnlock()
@@ -620,14 +598,14 @@ func minimizeDiff(pid int, env *ipc.Env, p *prog.Prog) *prog.Prog {
 	return p1
 }
 
-func reportDiff(p *prog.Prog, p1 *prog.Prog) {
+func reportDiff(p *prog.Prog) {
 	// report a new diff-inducing program
 	atomic.AddUint64(&statNewDiff, 1)
 	Logf(1, "reporting new diff from %v: %s", *flagName, p)
 	a := &NewDiffArgs{
 		Name:          *flagName,
 		Prog:          p.Serialize(),
-		MinimizedProg: p1.Serialize(),
+		MinimizedProg: nil,
 	}
 
 	if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
@@ -641,9 +619,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	defer signalMu.RUnlock()
 
 	if isDiscrepancy(states) {
-		diffMu.Lock()
-		diffs = append(diffs, p)
-		diffMu.Unlock()
+		reportDiff(p)
 		return info
 	}
 
