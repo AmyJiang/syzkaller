@@ -22,6 +22,7 @@ import (
 	"github.com/google/syzkaller/cover"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
+	"github.com/google/syzkaller/repro"
 	"github.com/google/syzkaller/sys"
 )
 
@@ -35,6 +36,7 @@ func (mgr *Manager) initHttp() {
 	http.HandleFunc("/prio", mgr.httpPrio)
 	http.HandleFunc("/file", mgr.httpFile)
 	http.HandleFunc("/report", mgr.httpReport)
+	http.HandleFunc("/diff", mgr.httpDiff)
 
 	ln, err := net.Listen("tcp4", mgr.cfg.Http)
 	if err != nil {
@@ -55,6 +57,11 @@ func (mgr *Manager) httpSummary(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if data.Crashes, err = collectCrashes(mgr.cfg.Workdir); err != nil {
 		http.Error(w, fmt.Sprintf("failed to collect crashes: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if data.Diffs, data.FailedDiffs, err = mgr.httpDiffSum(); err != nil {
+		http.Error(w, fmt.Sprintf("failed to collect diffs: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -222,13 +229,14 @@ func (mgr *Manager) httpFile(w http.ResponseWriter, r *http.Request) {
 	defer mgr.mu.Unlock()
 
 	file := filepath.Clean(r.FormValue("name"))
-	if !strings.HasPrefix(file, "crashes/") && !strings.HasPrefix(file, "corpus/") {
+	if !strings.HasPrefix(file, "crashes/") && !strings.HasPrefix(file, "corpus/") && !strings.HasPrefix(file, "logs/") {
 		http.Error(w, "oh, oh, oh!", http.StatusInternalServerError)
 		return
 	}
 	file = filepath.Join(mgr.cfg.Workdir, file)
 	f, err := os.Open(file)
 	if err != nil {
+		// FIXME: failed for logs/
 		http.Error(w, "failed to open the file", http.StatusInternalServerError)
 		return
 	}
@@ -264,6 +272,78 @@ func (mgr *Manager) httpReport(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "C reproducer:\n%s\n\n", cprog)
 		}
 	}
+}
+
+func (mgr *Manager) httpDiff(w http.ResponseWriter, r *http.Request) {
+	data := &UIDiffs{
+		Filesystems: mgr.cfg.Filesystems,
+	}
+
+	var err error
+	data.Diffs, err = collectDiffs(mgr.cfg.Workdir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to collect diff logs: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := diffTemplate.Execute(w, data); err != nil {
+		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (mgr *Manager) httpDiffSum() ([]*UIDiffType, []string, error) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
+	var diffs []*UIDiffType
+
+	var keys []string
+	for k := range mgr.uniqueDiffs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		diff := &UIDiffType{
+			Name:  k,
+			Count: len(mgr.uniqueDiffs[k]),
+			Logs:  mgr.uniqueDiffs[k],
+		}
+		diffs = append(diffs, diff)
+	}
+
+	return diffs, mgr.failedDiffs, nil
+}
+
+func collectDiffs(workdir string) ([]*UIDiff, error) {
+	diffdir := filepath.Join(workdir, "logs")
+	dirs, err := readdirnames(diffdir)
+	if err != nil {
+		return nil, err
+	}
+
+	var diffs []*UIDiff
+	for _, fname := range dirs {
+		if fname == "e1d57665c76144e7bb6a1436c4be9213d2610534.log" {
+			continue
+		}
+		logFile := filepath.Join(diffdir, fname)
+		_, groups, deltas, err := repro.ParseStates(logFile)
+		// FIXME: debug
+		if len(groups) != 3 || len(deltas) != 3 {
+			return nil, fmt.Errorf("lengths of groups/delta is different from total testfs: %v", fname)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		d := &UIDiff{
+			Log:    filepath.Join("logs", fname),
+			Groups: groups,
+			Deltas: deltas,
+		}
+		diffs = append(diffs, d)
+	}
+	return diffs, nil
 }
 
 func collectCrashes(workdir string) ([]*UICrashType, error) {
@@ -388,11 +468,13 @@ func trimNewLines(data []byte) []byte {
 }
 
 type UISummaryData struct {
-	Name    string
-	Stats   []UIStat
-	Calls   []UICallType
-	Crashes []*UICrashType
-	Log     string
+	Name        string
+	Stats       []UIStat
+	Calls       []UICallType
+	Crashes     []*UICrashType
+	Diffs       []*UIDiffType
+	FailedDiffs []string
+	Log         string
 }
 
 type UICrashType struct {
@@ -404,6 +486,12 @@ type UICrashType struct {
 	Crashes     []*UICrash
 }
 
+type UIDiffType struct {
+	Name  string
+	Count int
+	Logs  []string
+}
+
 type UICrash struct {
 	Index   int
 	Time    time.Time
@@ -411,6 +499,17 @@ type UICrash struct {
 	Log     string
 	Report  string
 	Tag     string
+}
+
+type UIDiff struct {
+	Log    string
+	Groups []int
+	Deltas []string
+}
+
+type UIDiffs struct {
+	Filesystems []string
+	Diffs       []*UIDiff
 }
 
 type UIStat struct {
@@ -512,6 +611,41 @@ var summaryTemplate = template.Must(template.New("").Parse(addStyle(`
 	{{end}}
 </table>
 <br>
+
+<table>
+	<caption>Diffs failed to reproduce:</caption>
+    <tr>
+        <th>Log</th>
+    </tr>
+    {{range $d := $.FailedDiffs}}
+    <tr>
+        <td><a href="/file?name=logs/{{$d}}">{{$d}}</a></td>
+    </tr>
+    {{end}}
+</table>
+<br>
+
+<table>
+	<caption>Unique Diffs:</caption>
+	<tr>
+		<th>Name</th>
+		<th>Count</th>
+		<th>Logs</th>
+	</tr>
+	{{range $d := $.Diffs}}
+	<tr>
+        <td>{{$d.Name}}</td>
+        <td>{{$d.Count}}</td>
+        <td>
+        {{range $l := $d.Logs}}
+        <p><a href="/file?name=logs/{{$l}}">{{$l}}</a></p>
+        {{end}}
+        </td>
+	</tr>
+	{{end}}
+</table>
+<br>
+
 
 <b>Log:</b>
 <br>
@@ -650,3 +784,30 @@ const htmlStyle = `
 		}
 	</style>
 `
+
+var diffTemplate = template.Must(template.New("").Parse(addStyle(`
+<!doctype html>
+<html>
+<head>
+	<title>Diffs</title>
+	{{STYLE}}
+</head>
+<body>
+<table>
+	<tr>
+		<th>Log</th>
+        {{range $fs := $.Filesystems}}
+        <th>{{$fs}}</th>
+        {{end}}
+	</tr>
+	{{range $d := $.Diffs}}
+	<tr>
+		<td><a href="/file?name={{$d.Log}}">{{$d.Log}}</a></td>
+        {{range $i, $g := $d.Groups }}
+        <td>{{$g}}:{{index $d.Deltas $i}}</td>
+		{{end}}
+	</tr>
+	{{end}}
+</table>
+</body></html>
+`)))

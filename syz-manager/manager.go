@@ -77,10 +77,14 @@ type Manager struct {
 	maxSignal      map[uint32]struct{}
 	corpusCover    map[uint32]struct{}
 	prios          [][]float32
+	uniqueDiffs    map[string]([]string)
+	failedDiffs    []string
 
 	fuzzers   map[string]*Fuzzer
 	hub       *RpcClient
 	hubCorpus map[hash.Sig]bool
+
+	diffs chan []byte
 }
 
 type Fuzzer struct {
@@ -140,6 +144,9 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 		fuzzers:         make(map[string]*Fuzzer),
 		fresh:           true,
 		vmStop:          make(chan bool),
+		uniqueDiffs:     make(map[string][]string),
+		failedDiffs:     []string{},
+		diffs:           make(chan []byte, 100),
 	}
 
 	Logf(0, "loading corpus...")
@@ -240,8 +247,9 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 			executed := mgr.stats["exec total"]
 			crashes := mgr.stats["crashes"]
 			diffs := mgr.stats["diffs"]
+			udiffs := mgr.stats["unique diffs"]
 			mgr.mu.Unlock()
-			Logf(0, "executed programs: %v, crashes: %v, diffs: %v", executed, crashes, diffs)
+			Logf(0, "executed programs: %v, crashes: %v, diffs: %v (%v)", executed, crashes, diffs, udiffs)
 		}
 	}()
 
@@ -318,6 +326,16 @@ type ReproResult struct {
 
 func (mgr *Manager) vmLoop() {
 	Logf(0, "booting test machines...")
+
+	// boot a test VM for reproducing discrepancies
+	diffReproducer, err := repro.CreateDiffReproducer(mgr.cfg.Count, mgr.vmStop, mgr.cfg)
+	if err != nil {
+		Fatalf("failed to create VM for reproducing discrepancies: %v", err)
+	}
+
+	// test diffReproducer
+	mgr.diffs <- []byte("# test")
+
 	reproInstances := 4
 	if reproInstances > mgr.cfg.Count {
 		reproInstances = mgr.cfg.Count
@@ -422,10 +440,49 @@ func (mgr *Manager) vmLoop() {
 			delete(reproducing, res.crash.desc)
 			instances = append(instances, res.instances...)
 			mgr.saveRepro(res.crash, res.res)
+		case p := <-mgr.diffs:
+			sig := hash.String(p)
+			if logFile, err := diffReproducer.Repro(sig, p); err != nil {
+				Logf(0, "reprodiff failed: %v", err)
+				//FIXME: remove
+				Fatalf("reprodiff failed")
+			} else {
+				Logf(0, "reproduced diff: %v", sig)
+				mgr.updateDiffs(logFile)
+			}
 		case <-shutdown:
 			Logf(1, "loop: shutting down...")
 			shutdown = nil
+			close(mgr.diffs)
+			if err := diffReproducer.Close(); err != nil {
+				Logf(0, "failed to shutdown diff reproducer: %v", err)
+			}
 		}
+	}
+}
+
+func (mgr *Manager) updateDiffs(logFile string) {
+	minProg, err := repro.ParseMinProg(logFile)
+
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if err != nil {
+		mgr.failedDiffs = append(mgr.failedDiffs, filepath.Base(logFile))
+		return
+	}
+
+	name := minProg.String()
+	if len(mgr.uniqueDiffs[name]) == 0 {
+		mgr.stats["unique diffs"]++
+		Logf(0, "[NEW] diff: %s", name)
+	}
+	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(logFile))
+
+	minProgStr := minProg.Serialize()
+	sig := hash.String(minProgStr)
+	mgr.diffDB.Save(sig, minProgStr, 0)
+	if err := mgr.diffDB.Flush(); err != nil {
+		Logf(0, "failed to save minimized diff database: %v", err)
 	}
 }
 
@@ -464,7 +521,7 @@ func (mgr *Manager) runInstance(vmCfg *vm.Config, first bool) (*Crash, error) {
 	}
 	if *flagDebugFuzzer {
 		procs = 1
-		fuzzerV = 100
+		fuzzerV = 1 //100
 	}
 
 	// Run the fuzzer binary.
@@ -764,9 +821,10 @@ func (mgr *Manager) Check(a *CheckArgs, r *int) error {
 }
 
 func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
-	Logf(0, "received new diff from %v", a.Name)
+	Logf(0, "received diff from %v", a.Name)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
+
 	f := mgr.fuzzers[a.Name]
 	if f == nil {
 		Fatalf("fuzzer %v is not connected", a.Name)
@@ -775,16 +833,12 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	mgr.stats["diffs"]++
 	sig := hash.String(a.Prog)
 	mgr.diffDB.Save(sig, a.Prog, 0)
-
-	if a.MinimizedProg != nil {
-		f0 := strings.Join([]string{sig, "min"}, "_")
-		mgr.diffDB.Save(f0, a.MinimizedProg, 0)
-	}
-
 	if err := mgr.diffDB.Flush(); err != nil {
 		Logf(0, "failed to save diff database: %v", err)
 	}
 	Logf(0, "saved new diff to %v", sig)
+
+	mgr.diffs <- a.Prog
 	return nil
 }
 
