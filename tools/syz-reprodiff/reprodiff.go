@@ -125,9 +125,10 @@ func writeFsStates(workdirs []string) error {
 		if err := writeLog("### %s\n", testfs[i]); err != nil {
 			return err
 		}
-		out, err := exec.Command("/bin/ls", "-lR", filepath.Join(dir, "0")).Output()
+		cmd := fmt.Sprintf("cd %v; ls -lR . | grep -v 'total' | awk '{print $1, $2, $3, $4, $5, $9}'", filepath.Join(dir, "0"))
+		out, err := exec.Command("bash", "-c", cmd).Output()
 		if err != nil {
-			return fmt.Errorf("failed to retrieve %v state: %v", testfs[i], err)
+			return fmt.Errorf("failed to execute command %s: %v", cmd, err)
 		}
 		if err := writeLog("%s\n\n", out); err != nil {
 			return err
