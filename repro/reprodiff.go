@@ -38,7 +38,7 @@ func CreateDiffReproducer(idx int, stop <-chan bool, cfg *config.Config) (*DiffR
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy binary: %v", err)
 	}
-	executorBin, err := inst.Copy(filepath.Join(cfg.Syzkaller, "bin", "syz-executor.dbg"))
+	executorBin, err := inst.Copy(filepath.Join(cfg.Syzkaller, "bin", "syz-executor"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to copy binary: %v", err)
 	}
