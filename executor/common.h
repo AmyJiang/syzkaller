@@ -124,11 +124,24 @@ __attribute__((noreturn)) void exitf(const char* msg, ...)
 }
 
 static int flag_debug;
+static int flag_repro;
 
 void debug(const char* msg, ...)
 {
 	if (!flag_debug)
 		return;
+	va_list args;
+	va_start(args, msg);
+	vfprintf(stdout, msg, args);
+	va_end(args);
+	fflush(stdout);
+}
+
+void dbg(const char* msg, ...)
+{
+	if (!flag_debug && !flag_repro)
+		return;
+
 	va_list args;
 	va_start(args, msg);
 	vfprintf(stdout, msg, args);
@@ -476,7 +489,7 @@ void update_state(const char* dir, std::map<std::string, std::string>& state)
 	struct dirent* ep;
 	dp = opendir(dir);
 	if (dp == NULL) {
-		debug("update_state: opendir(%s) failed", dir);
+		dbg("update_state: opendir(%s) failed", dir);
 		return;
 	}
 	while ((ep = readdir(dp))) {
@@ -500,14 +513,13 @@ void update_state(const char* dir, std::map<std::string, std::string>& state)
 }
 #endif
 
-#if defined(SYZ_FS_DEBUG)
 void debug_state(const char* dir)
 {
 	DIR* dp;
 	struct dirent* ep;
 	dp = opendir(dir);
 	if (dp == NULL) {
-		debug("[%s]: opendir failed\n", dir);
+		dbg("[%s]: opendir failed\n", dir);
 		return;
 	}
 
@@ -516,29 +528,28 @@ void debug_state(const char* dir)
 			continue;
 		char fname[256];
 		sprintf(fname, "%s/%s", dir, ep->d_name);
-		debug("[%s]: ", fname);
+		dbg("[%s]: ", fname);
 
 		struct stat st;
 		if (lstat(fname, &st))
-			debug("lstat failed\n");
+			dbg("lstat failed\n");
 
 		if (S_ISDIR(st.st_mode)) {
 			debug_state(fname);
 		}
 
-		debug("mode: %lo\t nlink: %ld\t uid: %ld\t gid: %ld",
-		      (unsigned long)st.st_mode, (long)st.st_nlink,
-		      (long)st.st_uid, (long)st.st_gid);
+		dbg("%lo %ld %ld %ld ",
+		    (unsigned long)st.st_mode, (long)st.st_nlink,
+		    (long)st.st_uid, (long)st.st_gid);
 		if (S_ISREG(st.st_mode)) {
-			debug("\t size: %lld", (long long)st.st_size);
+			dbg("%lld", (long long)st.st_size);
 		}
-		debug("\n");
+		dbg("\n");
 		// struct timespec &atime = st.st_atim, &mtime = st.st_mtim, &ctime = st.st_ctim;
 		// time (last status change, last file access, last file modification)
 	}
 	closedir(dp);
 }
-#endif
 
 static void setup_main_process()
 {
@@ -552,7 +563,9 @@ static void setup_main_process()
 	syscall(SYS_rt_sigaction, 0x21, &sa, NULL, 8);
 	install_segv_handler();
 
-#if !defined(SYZ_FS_DEBUG)
+	if (flag_repro)
+		return;
+
 	char tmpdir_template[] = "./syzkaller.XXXXXX";
 	char* tmpdir = mkdtemp(tmpdir_template);
 	if (!tmpdir)
@@ -561,7 +574,6 @@ static void setup_main_process()
 		fail("failed to chmod");
 	if (chdir(tmpdir))
 		fail("failed to chdir");
-#endif
 }
 
 static void loop();

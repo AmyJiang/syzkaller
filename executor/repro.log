@@ -1,0 +1,138 @@
+parent process: ruid=0; euid=0
+spawned loop pid 3153
+loop() process: ruid=0; euid=0
+clearing fs state: pos = 1ddbc20000
+spawned worker pid 3154
+execute_one() process: ruid=0; euid=0
+scheduling call 0 [mmap] on thread 0
+#0: mmap(0x20000000, 0x12000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0: mmap = 0x20000000
+completion of call 0 [mmap] on thread 0
+out #0: index=0 num=840 errno=0 sig=0 cover=0
+copyin to 0x20000ff8
+scheduling call 1 [creat] on thread 0
+#0: creat(0x20000ff8, 0x0)
+#0: creat = errno(13)
+completion of call 1 [creat] on thread 0
+out #1: index=1 num=72 errno=13 sig=0 cover=0
+copyin to 0x20000ff8
+scheduling call 2 [creat] on thread 0
+#0: creat(0x20000ff8, 0x0)
+#0: set(1001) ruid=0; euid=1001
+#0: creat = errno(13)
+completion of call 2 [creat] on thread 0
+out #2: index=2 num=72 errno=13 sig=0 cover=0
+scheduling call 3 [mmap] on thread 0
+#0: mmap(0x20012000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0: mmap = 0x20012000
+completion of call 3 [mmap] on thread 0
+out #3: index=3 num=840 errno=0 sig=0 cover=0
+scheduling call 4 [lseek] on thread 0
+#0: lseek(0xffffffffffffffff, 0x4000000000000000, 0x2)
+#0: lseek = errno(9)
+completion of call 4 [lseek] on thread 0
+out #4: index=4 num=823 errno=9 sig=0 cover=0
+copyin to 0x20011fbf
+scheduling call 5 [write] on thread 0
+#0: write(0xffffffffffffffff, 0x20011fbf, 0x1)
+#0: set(1001) ruid=0; euid=1001
+#0: write = errno(9)
+completion of call 5 [write] on thread 0
+out #5: index=5 num=1388 errno=9 sig=0 cover=0
+worker exiting
+waitpid(3154)=3154 (22)
+encode_state: 
+collecting fs state: pos = 1ddbc20000, size = 5
+rmdir(./0)
+parent process: ruid=0; euid=0
+spawned loop pid 3156
+loop() process: ruid=0; euid=0
+clearing fs state: pos = 1ddbc20000
+spawned worker pid 3157
+execute_one() process: ruid=0; euid=0
+scheduling call 0 [mmap] on thread 0
+#0: mmap(0x20000000, 0x12000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0: mmap = 0x20000000
+completion of call 0 [mmap] on thread 0
+out #0: index=0 num=840 errno=0 sig=0 cover=0
+copyin to 0x20000ff8
+scheduling call 1 [creat] on thread 0
+#0: creat(0x20000ff8, 0x0)
+#0: creat = errno(13)
+completion of call 1 [creat] on thread 0
+out #1: index=1 num=72 errno=13 sig=0 cover=0
+copyin to 0x20000ff8
+scheduling call 2 [creat] on thread 0
+#0: creat(0x20000ff8, 0x0)
+#0: set(1001) ruid=0; euid=1001
+#0: creat = errno(13)
+completion of call 2 [creat] on thread 0
+out #2: index=2 num=72 errno=13 sig=0 cover=0
+scheduling call 3 [mmap] on thread 0
+#0: mmap(0x20012000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0: mmap = 0x20012000
+completion of call 3 [mmap] on thread 0
+out #3: index=3 num=840 errno=0 sig=0 cover=0
+scheduling call 4 [lseek] on thread 0
+#0: lseek(0xffffffffffffffff, 0x4000000000000000, 0x2)
+#0: lseek = errno(9)
+completion of call 4 [lseek] on thread 0
+out #4: index=4 num=823 errno=9 sig=0 cover=0
+copyin to 0x20011fbf
+scheduling call 5 [write] on thread 0
+#0: write(0xffffffffffffffff, 0x20011fbf, 0x1)
+#0: set(1001) ruid=0; euid=1001
+#0: write = errno(9)
+completion of call 5 [write] on thread 0
+out #5: index=5 num=1388 errno=9 sig=0 cover=0
+worker exiting
+waitpid(3157)=3157 (22)
+encode_state: 
+collecting fs state: pos = 1ddbc20000, size = 5
+rmdir(./0)
+parent process: ruid=0; euid=0
+spawned loop pid 3159
+loop() process: ruid=0; euid=0
+clearing fs state: pos = 1ddbc20000
+spawned worker pid 3160
+execute_one() process: ruid=0; euid=0
+scheduling call 0 [mmap] on thread 0
+#0: mmap(0x20000000, 0x12000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0: mmap = 0x20000000
+completion of call 0 [mmap] on thread 0
+out #0: index=0 num=840 errno=0 sig=0 cover=0
+copyin to 0x20000ff8
+scheduling call 1 [creat] on thread 0
+#0: creat(0x20000ff8, 0x0)
+#0: creat = errno(13)
+completion of call 1 [creat] on thread 0
+out #1: index=1 num=72 errno=13 sig=0 cover=0
+copyin to 0x20000ff8
+scheduling call 2 [creat] on thread 0
+#0: creat(0x20000ff8, 0x0)
+#0: set(1001) ruid=0; euid=1001
+#0: creat = errno(13)
+completion of call 2 [creat] on thread 0
+out #2: index=2 num=72 errno=13 sig=0 cover=0
+scheduling call 3 [mmap] on thread 0
+#0: mmap(0x20012000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0: mmap = 0x20012000
+completion of call 3 [mmap] on thread 0
+out #3: index=3 num=840 errno=0 sig=0 cover=0
+scheduling call 4 [lseek] on thread 0
+#0: lseek(0xffffffffffffffff, 0x4000000000000000, 0x2)
+#0: lseek = errno(9)
+completion of call 4 [lseek] on thread 0
+out #4: index=4 num=823 errno=9 sig=0 cover=0
+copyin to 0x20011fbf
+scheduling call 5 [write] on thread 0
+#0: write(0xffffffffffffffff, 0x20011fbf, 0x1)
+#0: set(1001) ruid=0; euid=1001
+#0: write = errno(9)
+completion of call 5 [write] on thread 0
+out #5: index=5 num=1388 errno=9 sig=0 cover=0
+worker exiting
+waitpid(3160)=3160 (22)
+encode_state: 
+collecting fs state: pos = 1ddbc20000, size = 5
+rmdir(./0)

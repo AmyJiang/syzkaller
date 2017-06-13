@@ -177,6 +177,10 @@ int main(int argc, char** argv)
 	if (!flag_threaded)
 		flag_collide = false;
 	flag_enable_tun = flags & (1 << 6);
+	flag_repro = flags & (1 << 7);
+	if (flag_repro) {
+		flag_debug = flag_cover = flag_threaded = flag_collide = false;
+	}
 	uint64_t executor_pid = *((uint64_t*)input_data + 1);
 
 	cover_open();
@@ -307,6 +311,7 @@ void loop()
 				fail("failed to chdir");
 			close(kInPipeFd);
 			close(kOutPipeFd);
+			dbg("\n#Iteration: %d\n", iter);
 			debug("execute_one() process: ruid=%d; euid=%d\n", getuid(), geteuid());
 			execute_one();
 			debug("worker exiting\n");
@@ -369,9 +374,9 @@ void loop()
 			error("child errored");
 
 		state_write(cwdbuf, state_pos);
-#if !defined(SYZ_FS_DEBUG)
-		remove_dir(cwdbuf);
-#endif
+		if (!flag_repro) {
+			remove_dir(cwdbuf);
+		}
 
 		if (write(kOutPipeFd, &tmp, 1) != 1)
 			fail("control pipe write failed");
@@ -578,7 +583,7 @@ void handle_completion(thread_t* th)
 	if (!collide) {
 		write_output(th->call_index);
 		write_output(th->call_num);
-		uint32_t reserrno = th->res != (uint64_t)-1 ? 0 : th->reserrno;
+		uint32_t reserrno = th->res != (uint64_t)-1 ? th->res : -1 * th->reserrno;
 		write_output(reserrno);
 		uint32_t* signal_count_pos = write_output(0); // filled in later
 		uint32_t* cover_count_pos = write_output(0);  // filled in later
@@ -622,10 +627,10 @@ void handle_completion(thread_t* th)
 		debug("out #%u: index=%u num=%u errno=%d sig=%u cover=%u\n",
 		      completed, th->call_index, th->call_num, reserrno, nsig, cover_size);
 
-#if defined(SYZ_FS_DEBUG)
-		debug("fs state: \n");
-		debug_state(".");
-#endif
+		if (flag_repro) {
+			debug_state(".");
+			dbg("\n");
+		}
 
 		completed++;
 		__atomic_store_n(output_data, completed, __ATOMIC_RELEASE);
@@ -673,7 +678,7 @@ int user_set(thread_t* th)
 	if (syscall(SYS_setresuid, -1, euid, -1)) {
 		return -1;
 	}
-	debug("#%d: set(%d) ruid=%d; euid=%d\n", th->id, euid, getuid(), geteuid());
+	dbg("#%d(%d): seteuid(%d)\n", th->id, th->call_index, euid);
 	return 0;
 }
 
@@ -685,7 +690,6 @@ int user_reset(thread_t* th)
 	if (syscall(SYS_setresuid, -1, 0, -1)) {
 		return -1;
 	}
-	debug("#%d: reset ruid=%d; euid=%d\n", th->id, getuid(), geteuid());
 	return 0;
 }
 
@@ -693,13 +697,14 @@ void execute_call(thread_t* th)
 {
 	th->ready = false;
 	call_t* call = &syscalls[th->call_num];
-	debug("#%d: %s(", th->id, call->name);
+	dbg("#%d(%d): %s(", th->id, th->call_index, call->name);
+	dbg("#%d(%d): %s(", th->id, th->call_index, call->name);
 	for (int i = 0; i < th->num_args; i++) {
 		if (i != 0)
-			debug(", ");
-		debug("0x%lx", th->args[i]);
+			dbg(", ");
+		dbg("0x%lx", th->args[i]);
 	}
-	debug(")\n");
+	dbg(")\n");
 
 	if (user_set(th)) {
 		// FIXME: coverage?
@@ -715,11 +720,11 @@ void execute_call(thread_t* th)
 		fail("user_reset(%d) failed", th->call_user);
 	}
 	if (th->res == (uint64_t)-1) {
-		debug("#%d: %s = errno(%ld)\n", th->id, call->name, th->reserrno);
+		dbg("#%d(%d): %s = errno(%ld)\n", th->id, th->call_index, call->name, th->reserrno);
 	}
 
 	else
-		debug("#%d: %s = 0x%lx\n", th->id, call->name, th->res);
+		dbg("#%d(%d): %s = 0x%lx\n", th->id, th->call_index, call->name, th->res);
 	__atomic_store_n(&th->done, 1, __ATOMIC_RELEASE);
 	syscall(SYS_futex, &th->done, FUTEX_WAKE);
 }
