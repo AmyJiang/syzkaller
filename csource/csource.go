@@ -240,6 +240,7 @@ loop:
 			newCall()
 			meta := sys.Calls[instr]
 			fmt.Fprintf(w, "\tr[%v] = execute_syscall(__NR_%v", n, meta.CallName)
+			read()
 			nargs := read()
 			for i := uintptr(0); i < nargs; i++ {
 				typ := read()
