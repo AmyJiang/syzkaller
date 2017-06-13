@@ -506,12 +506,6 @@ func (mgr *Manager) runInstance(vmCfg *vm.Config, first bool) (*Crash, error) {
 		return nil, fmt.Errorf("failed to copy binary: %v", err)
 	}
 
-	// FIXME
-	_, err = inst.Copy(filepath.Join(mgr.cfg.Syzkaller, "bin", "syz-executor.dbg"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to copy binary: %v", err)
-	}
-
 	// Leak detection significantly slows down fuzzing, so detect leaks only on the first instance.
 	leak := first && mgr.cfg.Leak
 	fuzzerV := 0
