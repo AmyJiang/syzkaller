@@ -43,7 +43,7 @@ var (
 	flagLeak     = flag.Bool("leak", false, "detect memory leaks")
 	flagOutput   = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
 	flagPprof    = flag.String("pprof", "", "address to serve pprof profiles")
-	flagRootdirs = flag.String("rootdirs", "", "colon-separated list of rootdirs")
+	flagFS       = flag.String("rootdirs", "", "colon-separated list of rootdirs")
 )
 
 const (
@@ -91,9 +91,9 @@ var (
 	statNewInput uint64
 	statNewDiff  uint64
 
-	allTriaged uint32
-	noCover    bool
-	rootDirs   []string
+	allTriaged  uint32
+	noCover     bool
+	filesystems []string
 )
 
 func main() {
@@ -125,9 +125,9 @@ func main() {
 		runtime.MemProfileRate = 0
 	}
 
-	if *flagRootdirs != "" {
-		rootDirs = strings.Split(*flagRootdirs, ":")
-		fmt.Fprintf(os.Stdout, "[Fuzzer-rootdirs]: %q\n", rootDirs)
+	if *flagFS != "" {
+		filesystems = strings.Split(*flagFS, ":")
+		fmt.Fprintf(os.Stdout, "[Fuzzer-rootdirs]: %q\n", filesystems)
 	}
 
 	corpusSignal = make(map[uint32]struct{})
@@ -209,7 +209,7 @@ func main() {
 		leakCallback = nil
 	}
 
-	for _, dir := range rootDirs {
+	for _, dir := range filesystems {
 		if err := os.Chmod(dir, 0777); err != nil {
 			panic(fmt.Errorf("failed to chmod %v: %v", dir, err))
 		}
@@ -224,7 +224,7 @@ func main() {
 	needPoll <- struct{}{}
 	envs := make([]*ipc.Env, *flagProcs)
 	for pid := 0; pid < *flagProcs; pid++ {
-		env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, pid)
+		env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, pid, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -564,26 +564,11 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	corpusMu.Unlock()
 }
 
-func isDiscrepancy(states [][]uint32) bool {
-	// false if statets is nil
-	for i := 1; i < len(states); i += 1 {
-		if len(states[i]) != len(states[i-1]) {
-			return true
-		}
-		for j, v := range states[i-1] {
-			if v != states[i][j] {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // minimize a diff-inducing program
 func minimizeDiff(pid int, env *ipc.Env, p *prog.Prog) *prog.Prog {
 	// reproduce
 	_, states := execute1(pid, env, p, &statExecDiff, false, true)
-	if !isDiscrepancy(states) {
+	if !ipc.CheckDiscrepancy(states) {
 		Logf(1, "reproducing: %s from %v failed", p, *flagName)
 		return nil
 	}
@@ -593,7 +578,7 @@ func minimizeDiff(pid int, env *ipc.Env, p *prog.Prog) *prog.Prog {
 	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
 		Logf(1, "minimizing: %s", p1)
 		_, states := execute1(pid, env, p1, &statExecDiff, false, true)
-		return isDiscrepancy(states)
+		return ipc.CheckDiscrepancy(states)
 	}, false)
 	return p1
 }
@@ -618,7 +603,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	signalMu.RLock()
 	defer signalMu.RUnlock()
 
-	if isDiscrepancy(states) {
+	if ipc.CheckDiscrepancy(states) {
 		reportDiff(p)
 		return info
 	}
@@ -655,36 +640,28 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 
 var logMu sync.Mutex
 
-func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (info []ipc.CallInfo, states [][]uint32) {
+func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (combinedInfo []ipc.CallInfo, states []*ipc.State) {
 	// intercept execute1 to execute one program under multiple rootdirs
 	// TODO: fix the stat (= total all * #rootdirs)
 	// ChangeLog: 03/29/2017, do not add diff back to corpus
-	info = make([]ipc.CallInfo, len(p.Calls))
-	states = nil
-	if needState {
-		states = make([][]uint32, len(rootDirs))
-	}
+	//            06/13/2017, move to State struct
+	combinedInfo = make([]ipc.CallInfo, len(p.Calls))
 
-	for i, rootDir := range rootDirs {
-		calls_info, state := execute1_internal(pid, env, p, stat, needCover, needState, rootDir)
-
+	for _, fs := range filesystems {
+		info, state := execute1_internal(pid, env, p, stat, needCover, needState, fs)
 		if needState {
-			states[i] = append(states[i], state...)
+			states = append(states, state)
 		}
 
-		for call, inf := range calls_info {
-			info[call].Signal = append(info[call].Signal, inf.Signal...)
-			info[call].Cover = append(info[call].Cover, inf.Cover...)
-			info[call].Errnos = append(info[call].Errnos, inf.Errno)
-			if inf.Errno != 0 {
-				info[call].Errno = inf.Errno // TODO
-			}
+		for call, inf := range info {
+			combinedInfo[call].Signal = append(combinedInfo[call].Signal, inf.Signal...)
+			combinedInfo[call].Cover = append(combinedInfo[call].Cover, inf.Cover...)
 		}
 	}
-	return info, states
+	return
 }
 
-func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, rootDir string) (info []ipc.CallInfo, states []uint32) {
+func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, fs string) (info []ipc.CallInfo, state *ipc.State) {
 	if false {
 		// For debugging, this function must not be executed with locks held.
 		corpusMu.Lock()
@@ -728,7 +705,7 @@ func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCo
 	try := 0
 retry:
 	atomic.AddUint64(stat, 1)
-	output, info, failed, hanged, err, states, _ := env.Exec(p, needCover, true, needState, rootDir)
+	output, info, failed, hanged, err, state := env.Exec(p, needCover, true, needState, fs)
 	if failed {
 		// BUG in output should be recognized by manager.
 		Logf(0, "BUG: executor-detected bug:\n%s", output)
