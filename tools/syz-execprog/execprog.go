@@ -97,7 +97,7 @@ func main() {
 		pid := p
 		go func() {
 			defer wg.Done()
-			env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, pid)
+			env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, pid, nil)
 			if err != nil {
 				Fatalf("failed to create ipc env: %v", err)
 			}
@@ -130,7 +130,7 @@ func main() {
 
 					info := make([]ipc.CallInfo, len(p.Calls))
 					for _, fs := range testfs {
-						output, info_per_fs, failed, hanged, err, _, _ := env.Exec(p, needCover, dedupCover, false, fs)
+						output, info_per_fs, failed, hanged, err, _ := env.Exec(p, needCover, dedupCover, false, fs)
 						if atomic.LoadUint32(&shutdown) != 0 {
 							return false
 						}
@@ -143,7 +143,6 @@ func main() {
 						for call, inf := range info_per_fs {
 							info[call].Signal = append(info[call].Signal, inf.Signal...)
 							info[call].Cover = append(info[call].Cover, inf.Cover...)
-							info[call].Errnos = append(info[call].Errnos, inf.Errno)
 							if inf.Errno != 0 {
 								info[call].Errno = inf.Errno // TODO
 							}
