@@ -231,7 +231,8 @@ type CallInfo struct {
 
 type State struct {
 	Stats   []uint32
-	Retvals []int
+	Res     []int32
+	Errnos  []int32
 	Workdir string
 }
 
@@ -240,7 +241,7 @@ func CheckDiscrepancy(states []*State) bool {
 	for i := 1; i < len(states); i += 1 {
 		s1 := states[i-1]
 		s2 := states[i]
-		if len(s1.Stats) != len(s2.Stats) || len(s1.Retvals) != len(s2.Retvals) {
+		if len(s1.Stats) != len(s2.Stats) || len(s1.Res) != len(s2.Res) {
 			return true
 		}
 
@@ -250,8 +251,8 @@ func CheckDiscrepancy(states []*State) bool {
 			}
 		}
 
-		for j, v := range s1.Retvals {
-			if s2.Retvals[j] != v {
+		for j, v := range s1.Res {
+			if s2.Res[j] != v || s2.Errnos[j] != s1.Errnos[j] {
 				return true
 			}
 		}
@@ -337,6 +338,9 @@ func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo
 	if needFsState {
 		state = &State{
 			Workdir: "",
+			Res:     make([]int32, 0),
+			Errnos:  make([]int32, 0),
+			Stats:   make([]uint32, 0),
 		}
 		if !readOut(&statSize) {
 			err0 = fmt.Errorf("executor %v: failed to read filesystem status", env.pid)
@@ -369,8 +373,8 @@ func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo
 		return buf.String()
 	}
 	for i := uint32(0); i < ncmd; i++ {
-		var callIndex, callNum, ret, signalSize, coverSize uint32
-		if !readOut(&callIndex) || !readOut(&callNum) || !readOut(&ret) || !readOut(&signalSize) || !readOut(&coverSize) {
+		var callIndex, callNum, res, errno, signalSize, coverSize uint32
+		if !readOut(&callIndex) || !readOut(&callNum) || !readOut(&res) || !readOut(&errno) || !readOut(&signalSize) || !readOut(&coverSize) {
 			err0 = fmt.Errorf("executor %v: failed to read output coverage", env.pid)
 			return
 		}
@@ -390,12 +394,11 @@ func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo
 				env.pid, callIndex, dumpCov())
 			return
 		}
-		if int(ret) < 0 {
-			info[callIndex].Errno = -1 * int(ret)
-		} else {
-			info[callIndex].Errno = 0
+		info[callIndex].Errno = int(errno)
+		if needFsState {
+			state.Res = append(state.Res, int32(res))
+			state.Errnos = append(state.Errnos, int32(errno))
 		}
-		state.Retvals = append(state.Retvals, int(ret))
 
 		if signalSize > uint32(len(out)) {
 			err0 = fmt.Errorf("executor %v: failed to read output signal: record %v, call %v, signalsize=%v coversize=%v",
