@@ -250,6 +250,17 @@ func reproduce() error {
 		}
 	}, false)
 
+	// Test single-user case
+	p2 := p1.Clone()
+	prog.SetUser(p2, prog.U1)
+	states, err = execute1(env, p2)
+	if err != nil {
+		return err
+	}
+	if ipc.CheckDiscrepancy(states) {
+		p1 = p2
+	}
+
 	Logf(0, "minimized prog to %s", p1)
 	err = writeLog("## Minimized Prog: %s\n%s\n\n", p1, p1.Serialize())
 	if err != nil {

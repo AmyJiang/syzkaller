@@ -267,3 +267,9 @@ func (p *Prog) removeCall(idx int) {
 	}
 	p.removeArg(c, c.Ret)
 }
+
+func SetUser(p *Prog, user Uid) {
+	for _, c := range p.Calls {
+		c.User = user
+	}
+}
