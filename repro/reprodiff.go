@@ -135,7 +135,7 @@ func readProg(scanner *bufio.Scanner) (*prog.Prog, error) {
 
 func readStates(scanner *bufio.Scanner) ([]string, error) {
 	states := []string{}
-	for scanner.Scan() && scanner.Text() != "" {
+	for scanner.Scan() && !strings.HasPrefix(scanner.Text(), "## ") {
 		if strings.HasPrefix(scanner.Text(), "Failed") {
 			return nil, fmt.Errorf("failed to read states: %v", scanner.Text())
 		}
@@ -270,23 +270,23 @@ func ParseStates(log string) (states []string, res []string, groups []int, delta
 			if err != nil {
 				return
 			}
+			if len(states) == 0 {
+				err = fmt.Errorf("empty states")
+				return
+			}
 		}
 		if strings.HasPrefix(scanner.Text(), "## Return") {
 			res, err = readRes(scanner)
 			if err != nil {
 				return
 			}
+			break
 		}
 	}
 	err = scanner.Err()
 	if err != io.EOF && err != nil {
 		return
 	}
-	if len(states) == 0 {
-		err = fmt.Errorf("empty states")
-		return
-	}
-
 	groups, deltas = diffStates(states)
 	resDiff = diffRes(res)
 	return
