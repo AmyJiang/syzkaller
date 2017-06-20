@@ -42,6 +42,7 @@ func initExecutor() (*ipc.Env, *os.File, error) {
 	env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, 0, writePipe)
 	if err != nil {
 		writePipe.Close()
+		readPipe.Close()
 		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
 	}
 
@@ -104,16 +105,6 @@ func writeLog(template string, vargs ...interface{}) error {
 }
 
 func writeFsStates(workdirs []string) error {
-	defer func() {
-		if *flagSaveDir {
-			return
-		}
-		for _, dir := range workdirs {
-			fileutil.UmountAll(dir)
-			os.RemoveAll(dir)
-		}
-	}()
-
 	for i, dir := range workdirs {
 		if err := writeLog("### %s\n", testfs[i]); err != nil {
 			return err
@@ -127,6 +118,26 @@ func writeFsStates(workdirs []string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func writeRes(p *prog.Prog, states []*ipc.State) error {
+	if err := writeLog("## Return values:\n"); err != nil {
+		return err
+	}
+
+	for i, c := range p.Calls {
+		if err := writeLog("%v ", c.Meta.Name); err != nil {
+			return err
+		}
+		for _, st := range states {
+			if err := writeLog("%d(%d) ", st.Res[i], st.Errnos[i]); err != nil {
+				return err
+			}
+		}
+		writeLog("\n")
+	}
+	writeLog("\n")
 	return nil
 }
 
@@ -206,7 +217,21 @@ func reproduce() error {
 	for _, s := range states {
 		workdirs = append(workdirs, s.Workdir)
 	}
+	defer func() {
+		if *flagSaveDir {
+			return
+		}
+		for _, dir := range workdirs {
+			fileutil.UmountAll(dir)
+			os.RemoveAll(dir)
+		}
+	}()
+
 	if err := writeFsStates(workdirs); err != nil {
+		return err
+	}
+
+	if err := writeRes(p, states); err != nil {
 		return err
 	}
 
@@ -217,9 +242,11 @@ func reproduce() error {
 		states, err := execute1(env, p1)
 		if err != nil {
 			// FIXME: how to compare in the existence of error/hang?
+			Logf(0, "Execution threw error: %v", err)
 			return false
 		} else {
-			return ipc.CheckDiscrepancy(states)
+			cond := ipc.CheckDiscrepancy(states)
+			return cond
 		}
 	}, false)
 

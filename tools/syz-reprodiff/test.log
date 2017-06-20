@@ -1,0 +1,1023 @@
+ReproDiff: test1.log
+=====================================
+## Prog: mmap-mmap-mmap-open-mmap-creat-creat:1001-mmap-creat:1001-write:1001
+1000:mmap(&(0x7f0000feb000/0x3000)=nil, (0x3000), 0x5, 0x10, 0xffffffffffffffff, 0x0)
+1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)
+1000:mmap(&(0x7f0000001000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)
+1000:open(&(0x7f0000001000)="2e2f66696c653000", 0x487807dd9e335093, 0x80)
+1000:mmap(&(0x7f0000002000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)
+1000:creat(&(0x7f0000003000-0x8)="2e2f66696c653100", 0x10)
+1001:r0 = creat(&(0x7f0000fed000)="2e2f66696c653000", 0x8)
+1000:mmap(&(0x7f0000feb000/0x3000)=nil, (0x3000), 0x4, 0x40010, r0, 0x0)
+1001:r1 = creat(&(0x7f0000001000-0x8)="2e2f66696c653000", 0x8)
+1001:write(r1, &(0x7f0000003000-0x1000)="", 0x1001)
+
+
+## State:
+### /testfs1
+.:     
+------x--- 1 u2 u2 4096 file0
+---------- 1 u1 u1 0 file1
+
+
+### /testfs2
+.:     
+------x--- 1 u2 u2 4096 file0
+---------- 1 u1 u1 0 file1
+
+
+### /testfs3
+.:     
+------x--- 1 u2 u2 0 file0
+---------- 1 u1 u1 0 file1
+
+
+## Return values:
+mmap -1(9) -1(9) -1(9) 
+mmap 536870912(0) 536870912(0) 536870912(0) 
+mmap 536875008(0) 536875008(0) 536875008(0) 
+open -1(2) -1(2) -1(2) 
+mmap 536879104(0) 536879104(0) 536879104(0) 
+creat 3(0) 3(0) 3(0) 
+creat -1(14) -1(14) -1(14) 
+mmap -1(9) -1(9) -1(9) 
+creat 4(0) 4(0) 4(0) 
+write 4096(0) 4096(0) -1(14) 
+
+## Minimized Prog: mmap-creat:1001-write:1001
+1000:mmap(&(0x7f0000000000/0x1000)=nil, (0x1000), 0x3, 0x32, 0xffffffffffffffff, 0x0)
+1001:r0 = creat(&(0x7f0000001000-0x8)="2e2f66696c653000", 0x0)
+1001:write(r0, &(0x7f0000003000-0x1000)="", 0x1001)
+
+
+## Log:
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir333905997/0
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): mmap(0x20feb000, 0x3000, 0x4, 0x40010, 0xffffffffffffffff, 0x0)
+#0(7): seteuid(1000)
+#0(7): mmap = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#0(8): creat(0x20000ff8, 0x8)
+#0(8): seteuid(1001)
+#0(8): creat = 0x4
+[./file0]: 100010 1 1001 1001 0
+[./file1]: 100000 1 1000 1000 0
+#0(9): write(0x4, 0x20002000, 0x1001)
+#0(9): seteuid(1001)
+#0(9): write = 0x1000
+[./file0]: 100010 1 1001 1001 4096
+[./file1]: 100000 1 1000 1000 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir355654472/0
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): mmap(0x20feb000, 0x3000, 0x4, 0x40010, 0xffffffffffffffff, 0x0)
+#0(7): seteuid(1000)
+#0(7): mmap = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#0(8): creat(0x20000ff8, 0x8)
+#0(8): seteuid(1001)
+#0(8): creat = 0x4
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#0(9): write(0x4, 0x20002000, 0x1001)
+#0(9): seteuid(1001)
+#0(9): write = 0x1000
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 4096
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir791166471/0
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): mmap(0x20feb000, 0x3000, 0x4, 0x40010, 0xffffffffffffffff, 0x0)
+#0(7): seteuid(1000)
+#0(7): mmap = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#0(8): creat(0x20000ff8, 0x8)
+#0(8): seteuid(1001)
+#0(8): creat = 0x4
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#0(9): write(0x4, 0x20002000, 0x1001)
+#0(9): seteuid(1001)
+#0(9): write = errno(14)
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+failed to chdir (errno 2)
+child failed (errno 22)
+loop failed (errno 0)
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/0
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): mmap(0x20feb000, 0x3000, 0x4, 0x40010, 0xffffffffffffffff, 0x0)
+#0(7): seteuid(1000)
+#0(7): mmap = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#0(8): creat(0x20000ff8, 0x8)
+#0(8): seteuid(1001)
+#0(8): creat = 0x4
+[./file0]: 100010 1 1001 1001 0
+[./file1]: 100000 1 1000 1000 0
+#--------------------------------------------------------------
+
+failed to chdir (errno 2)
+child failed (errno 22)
+loop failed (errno 0)
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/1
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): mmap(0x20feb000, 0x3000, 0x4, 0x40010, 0xffffffffffffffff, 0x0)
+#0(7): seteuid(1000)
+#0(7): mmap = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#0(8): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(8): seteuid(1001)
+#0(8): write = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/0
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): mmap(0x20feb000, 0x3000, 0x4, 0x40010, 0xffffffffffffffff, 0x0)
+#0(7): seteuid(1000)
+#0(7): mmap = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#0(8): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(8): seteuid(1001)
+#0(8): write = errno(9)
+[./file1]: 100000 1 1000 1000 0
+#--------------------------------------------------------------
+
+failed to chdir (errno 2)
+child failed (errno 22)
+loop failed (errno 0)
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/2
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): creat(0x20000ff8, 0x8)
+#0(7): seteuid(1001)
+#0(7): creat = 0x4
+[./file0]: 100010 1 1001 1001 0
+[./file1]: 100000 1 1000 1000 0
+#0(8): write(0x4, 0x20002000, 0x1001)
+#0(8): seteuid(1001)
+#0(8): write = 0x1000
+[./file0]: 100010 1 1001 1001 4096
+[./file1]: 100000 1 1000 1000 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/1
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): creat(0x20000ff8, 0x8)
+#0(7): seteuid(1001)
+#0(7): creat = 0x4
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#0(8): write(0x4, 0x20002000, 0x1001)
+#0(8): seteuid(1001)
+#0(8): write = 0x1000
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 4096
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/0
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20fed000, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = errno(14)
+[./file1]: 100000 1 1000 1000 0
+#0(7): creat(0x20000ff8, 0x8)
+#0(7): seteuid(1001)
+#0(7): creat = 0x4
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#0(8): write(0x4, 0x20002000, 0x1001)
+#0(8): seteuid(1001)
+#0(8): write = errno(14)
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/3
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20000ff8, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = 0x4
+[./file0]: 100010 1 1001 1001 0
+[./file1]: 100000 1 1000 1000 0
+#0(7): write(0x4, 0x20002000, 0x1001)
+#0(7): seteuid(1001)
+#0(7): write = 0x1000
+[./file0]: 100010 1 1001 1001 4096
+[./file1]: 100000 1 1000 1000 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/2
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20000ff8, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = 0x4
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#0(7): write(0x4, 0x20002000, 0x1001)
+#0(7): seteuid(1001)
+#0(7): write = 0x1000
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 4096
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/1
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20002ff8, 0x10)
+#0(5): seteuid(1000)
+#0(5): creat = 0x3
+[./file1]: 100000 1 1000 1000 0
+#0(6): creat(0x20000ff8, 0x8)
+#0(6): seteuid(1001)
+#0(6): creat = 0x4
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#0(7): write(0x4, 0x20002000, 0x1001)
+#0(7): seteuid(1001)
+#0(7): write = errno(14)
+[./file1]: 100000 1 1000 1000 0
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/4
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20000ff8, 0x8)
+#0(5): seteuid(1001)
+#0(5): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(6): write(0x3, 0x20002000, 0x1001)
+#0(6): seteuid(1001)
+#0(6): write = 0x1000
+[./file0]: 100010 1 1001 1001 4096
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/3
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20000ff8, 0x8)
+#0(5): seteuid(1001)
+#0(5): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(6): write(0x3, 0x20002000, 0x1001)
+#0(6): seteuid(1001)
+#0(6): write = 0x1000
+[./file0]: 100010 1 1001 1001 4096
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/2
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): mmap(0x20002000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(4): seteuid(1000)
+#0(4): mmap = 0x20002000
+#0(5): creat(0x20000ff8, 0x8)
+#0(5): seteuid(1001)
+#0(5): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(6): write(0x3, 0x20002000, 0x1001)
+#0(6): seteuid(1001)
+#0(6): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/5
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): creat(0x20000ff8, 0x8)
+#0(4): seteuid(1001)
+#0(4): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(5): write(0x3, 0x20002000, 0x1001)
+#0(5): seteuid(1001)
+#0(5): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/4
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): creat(0x20000ff8, 0x8)
+#0(4): seteuid(1001)
+#0(4): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(5): write(0x3, 0x20002000, 0x1001)
+#0(5): seteuid(1001)
+#0(5): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/3
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): open(0x20001000, 0x487807dd9e335093, 0x80)
+#0(3): seteuid(1000)
+#0(3): open = errno(2)
+#0(4): creat(0x20000ff8, 0x8)
+#0(4): seteuid(1001)
+#0(4): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(5): write(0x3, 0x20002000, 0x1001)
+#0(5): seteuid(1001)
+#0(5): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/6
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): creat(0x20000ff8, 0x8)
+#0(3): seteuid(1001)
+#0(3): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(4): write(0x3, 0x20002000, 0x1001)
+#0(4): seteuid(1001)
+#0(4): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/5
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): creat(0x20000ff8, 0x8)
+#0(3): seteuid(1001)
+#0(3): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(4): write(0x3, 0x20002000, 0x1001)
+#0(4): seteuid(1001)
+#0(4): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/4
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): mmap(0x20001000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(2): seteuid(1000)
+#0(2): mmap = 0x20001000
+#0(3): creat(0x20000ff8, 0x8)
+#0(3): seteuid(1001)
+#0(3): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(4): write(0x3, 0x20002000, 0x1001)
+#0(4): seteuid(1001)
+#0(4): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/7
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): creat(0x20000ff8, 0x8)
+#0(2): seteuid(1001)
+#0(2): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(3): write(0x3, 0x20002000, 0x1001)
+#0(3): seteuid(1001)
+#0(3): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/6
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): creat(0x20000ff8, 0x8)
+#0(2): seteuid(1001)
+#0(2): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(3): write(0x3, 0x20002000, 0x1001)
+#0(3): seteuid(1001)
+#0(3): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/5
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(1): seteuid(1000)
+#0(1): mmap = 0x20000000
+#0(2): creat(0x20000ff8, 0x8)
+#0(2): seteuid(1001)
+#0(2): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(3): write(0x3, 0x20002000, 0x1001)
+#0(3): seteuid(1001)
+#0(3): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/8
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/7
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/6
+#0(0): mmap(0x20feb000, 0x3000, 0x5, 0x10, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/9
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/8
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/7
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100010 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100010 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/10
+#0(0): mmap(0x20000000, 0x1000, 0x0, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/9
+#0(0): mmap(0x20000000, 0x1000, 0x0, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/8
+#0(0): mmap(0x20000000, 0x1000, 0x0, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/11
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x0, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/10
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x0, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/9
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x0, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = errno(9)
+#0(1): creat(0x20000ff8, 0x8)
+#0(1): seteuid(1001)
+#0(1): creat = errno(14)
+#0(2): write(0xffffffffffffffff, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(9)
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/12
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x0)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100000 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100000 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/11
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x0)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100000 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100000 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/10
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x0)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100000 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100000 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs1/syzkaller-testdir641213882/13
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x0)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100000 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100000 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs2/syzkaller-testdir997915089/12
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x0)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100000 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100000 1 1001 1001 0
+#--------------------------------------------------------------
+
+#--------------------------------------------------------------
+#TestDir: /testfs3/syzkaller-testdir795497724/11
+#0(0): mmap(0x20000000, 0x1000, 0x3, 0x32, 0xffffffffffffffff, 0x0)
+#0(0): seteuid(1000)
+#0(0): mmap = 0x20000000
+#0(1): creat(0x20000ff8, 0x0)
+#0(1): seteuid(1001)
+#0(1): creat = 0x3
+[./file0]: 100000 1 1001 1001 0
+#0(2): write(0x3, 0x20002000, 0x1001)
+#0(2): seteuid(1001)
+#0(2): write = errno(14)
+[./file0]: 100000 1 1001 1001 0
+#--------------------------------------------------------------
+
