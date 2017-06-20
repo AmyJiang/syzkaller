@@ -569,11 +569,11 @@ static void setup_main_process()
 	char tmpdir_template[] = "./syzkaller.XXXXXX";
 	char* tmpdir = mkdtemp(tmpdir_template);
 	if (!tmpdir)
-		fail("failed to mkdtemp");
+		fail("failed to mkdtemp (tmpdir)");
 	if (chmod(tmpdir, 0777))
-		fail("failed to chmod");
+		fail("failed to chmod (tmpdir)");
 	if (chdir(tmpdir))
-		fail("failed to chdir");
+		fail("failed to chdir (tmpdir)");
 }
 
 static void loop();

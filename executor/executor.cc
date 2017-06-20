@@ -282,11 +282,10 @@ void loop()
 		char cwdbuf[256];
 		sprintf(cwdbuf, "./%d", iter);
 		if (mkdir(cwdbuf, 0777)) {
-			fail("failed to mkdir");
+			fail("failed to mkdir: %s", cwdbuf);
 		}
-
 		if (chmod(cwdbuf, 0777)) {
-			fail("failed to chmod: %d", cwdbuf);
+			fail("failed to chmod: %s", cwdbuf);
 		}
 
 		// TODO: consider moving the read into the child.
@@ -307,13 +306,20 @@ void loop()
 		if (pid == 0) {
 			prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
 			setpgrp();
+
+			char testdir[256];
+			if (getcwd(testdir, sizeof(testdir)) == NULL) {
+				fail("failed to getcwd");
+			}
+			dbg("#--------------------------------------------------------------\n");
+			dbg("#TestDir: %s/%s\n", testdir, cwdbuf);
 			if (chdir(cwdbuf))
-				fail("failed to chdir");
+				fail("failed to chdir %s", cwdbuf);
 			close(kInPipeFd);
 			close(kOutPipeFd);
-			dbg("\n#Iteration: %d\n", iter);
 			debug("execute_one() process: ruid=%d; euid=%d\n", getuid(), geteuid());
 			execute_one();
+			dbg("#--------------------------------------------------------------\n\n");
 			debug("worker exiting\n");
 			doexit(0);
 		}
@@ -375,6 +381,7 @@ void loop()
 
 		state_write(cwdbuf, state_pos);
 		if (!flag_repro) {
+			dbg("remove dir %s", cwdbuf);
 			remove_dir(cwdbuf);
 		}
 
@@ -583,8 +590,10 @@ void handle_completion(thread_t* th)
 	if (!collide) {
 		write_output(th->call_index);
 		write_output(th->call_num);
-		uint32_t reserrno = th->res != (uint64_t)-1 ? th->res : -1 * th->reserrno;
+		write_output(th->res);
+		uint32_t reserrno = th->res != (uint64_t)-1 ? 0 : th->reserrno;
 		write_output(reserrno);
+
 		uint32_t* signal_count_pos = write_output(0); // filled in later
 		uint32_t* cover_count_pos = write_output(0);  // filled in later
 
@@ -629,7 +638,6 @@ void handle_completion(thread_t* th)
 
 		if (flag_repro) {
 			debug_state(".");
-			dbg("\n");
 		}
 
 		completed++;
@@ -697,7 +705,6 @@ void execute_call(thread_t* th)
 {
 	th->ready = false;
 	call_t* call = &syscalls[th->call_num];
-	dbg("#%d(%d): %s(", th->id, th->call_index, call->name);
 	dbg("#%d(%d): %s(", th->id, th->call_index, call->name);
 	for (int i = 0; i < th->num_args; i++) {
 		if (i != 0)
