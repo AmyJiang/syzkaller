@@ -294,7 +294,7 @@ func (ctx *context) testProg(p *prog.Prog, duration time.Duration, opts csource.
 	if opts.Repeat {
 		repeat = "0"
 	}
-	command := fmt.Sprintf("%v -executor %v -cover=0 -procs=%v -repeat=%v -sandbox %v -threaded=%v -collide=%v %v",
+	command := fmt.Sprintf("%v -executor %v -cover=0 -procs=%v -repeat=%v -sandbox %v -threaded=%v -collide=%v -testfs=/testfs1:/testfs2:/testfs3 %v",
 		inst.execprogBin, inst.executorBin, opts.Procs, repeat, opts.Sandbox, opts.Threaded, opts.Collide, vmProgFile)
 	Logf(2, "reproducing crash '%v': testing program (duration=%v, %+v): %s",
 		ctx.crashDesc, duration, opts, p)

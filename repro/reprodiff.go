@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -97,6 +98,7 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 	vmLogFile := filepath.Join("/tmp", fname+".log")
 	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -min",
 		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"), vmLogFile)
+	Logf(0, "executing command: %v", command)
 	outc, errc, err := reproducer.inst.Run(time.Minute*30, reproducer.stop, command)
 	if err != nil {
 		return "", fmt.Errorf("failed to run syz-reprodiff: %v", err)
@@ -104,7 +106,6 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 	if err := waitForExecution(outc, errc); err != nil {
 		return "", fmt.Errorf("failed to run syz-reprodiff: %v", err)
 	}
-	Logf(0, "executed command: %v", command)
 
 	hostLog := filepath.Join(reproducer.logPath, fname+".log")
 	if err := reproducer.inst.MoveOut(vmLogFile, hostLog); err != nil {
@@ -134,7 +135,7 @@ func readProg(scanner *bufio.Scanner) (*prog.Prog, error) {
 
 func readStates(scanner *bufio.Scanner) ([]string, error) {
 	states := []string{}
-	for scanner.Scan() {
+	for scanner.Scan() && scanner.Text() != "" {
 		if strings.HasPrefix(scanner.Text(), "Failed") {
 			return nil, fmt.Errorf("failed to read states: %v", scanner.Text())
 		}
@@ -149,6 +150,15 @@ func readStates(scanner *bufio.Scanner) ([]string, error) {
 		states = append(states, st)
 	}
 	return states, nil
+}
+
+func readRes(scanner *bufio.Scanner) ([]string, error) {
+	var res []string
+
+	for scanner.Scan() && scanner.Text() != "" {
+		res = append(res, scanner.Text())
+	}
+	return res, nil
 }
 
 var fieldNames = []string{"Perm", "Link", "User", "Group", "Size", "Name", "File"}
@@ -201,8 +211,19 @@ func diffStates(states []string) ([]int, []string) {
 			deltas[i] = strings.Join(delta, ",")
 		}
 	}
-
 	return groups, deltas
+}
+
+func diffRes(res []string) string {
+	for _, r := range res {
+		tmp := strings.Split(strings.TrimRight(r, " "), " ")[1:]
+		for i := 1; i < len(tmp); i++ {
+			if tmp[i] != tmp[i-1] {
+				return r
+			}
+		}
+	}
+	return ""
 }
 
 func ParseMinProg(log string) (*prog.Prog, error) {
@@ -234,7 +255,7 @@ func ParseMinProg(log string) (*prog.Prog, error) {
 	return minProg, nil
 }
 
-func ParseStates(log string) (states []string, groups []int, deltas []string, err error) {
+func ParseStates(log string) (states []string, res []string, groups []int, deltas []string, resDiff string, err error) {
 	var logFile *os.File
 	logFile, err = os.Open(log)
 	defer logFile.Close()
@@ -242,7 +263,6 @@ func ParseStates(log string) (states []string, groups []int, deltas []string, er
 		return
 	}
 
-	//var states []string
 	scanner := bufio.NewScanner(logFile)
 	for scanner.Scan() {
 		if strings.HasPrefix(scanner.Text(), "## State") {
@@ -250,11 +270,16 @@ func ParseStates(log string) (states []string, groups []int, deltas []string, er
 			if err != nil {
 				return
 			}
-			break
+		}
+		if strings.HasPrefix(scanner.Text(), "## Return") {
+			res, err = readRes(scanner)
+			if err != nil {
+				return
+			}
 		}
 	}
 	err = scanner.Err()
-	if err != nil {
+	if err != io.EOF && err != nil {
 		return
 	}
 	if len(states) == 0 {
@@ -263,5 +288,6 @@ func ParseStates(log string) (states []string, groups []int, deltas []string, er
 	}
 
 	groups, deltas = diffStates(states)
+	resDiff = diffRes(res)
 	return
 }
