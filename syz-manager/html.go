@@ -327,11 +327,8 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 			continue
 		}
 		logFile := filepath.Join(diffdir, fname)
-		_, groups, deltas, err := repro.ParseStates(logFile)
-		// FIXME: debug
-		if len(groups) != 3 || len(deltas) != 3 {
-			return nil, fmt.Errorf("lengths of groups/delta is different from total testfs: %v", fname)
-		}
+		_, _, groups, deltas, extra, err := repro.ParseStates(logFile)
+
 		if err != nil {
 			return nil, err
 		}
@@ -340,6 +337,7 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 			Log:    filepath.Join("logs", fname),
 			Groups: groups,
 			Deltas: deltas,
+			Extra:  extra,
 		}
 		diffs = append(diffs, d)
 	}
@@ -505,6 +503,7 @@ type UIDiff struct {
 	Log    string
 	Groups []int
 	Deltas []string
+	Extra  string
 }
 
 type UIDiffs struct {
@@ -799,6 +798,7 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
         {{range $fs := $.Filesystems}}
         <th>{{$fs}}</th>
         {{end}}
+        <th>Additional Info<th>
 	</tr>
 	{{range $d := $.Diffs}}
 	<tr>
@@ -806,6 +806,7 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
         {{range $i, $g := $d.Groups }}
         <td>{{$g}}:{{index $d.Deltas $i}}</td>
 		{{end}}
+        <td>{{$d.Extra}}</td>
 	</tr>
 	{{end}}
 </table>
