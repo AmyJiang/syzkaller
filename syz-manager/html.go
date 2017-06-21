@@ -328,6 +328,9 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 		if fname == "e1d57665c76144e7bb6a1436c4be9213d2610534.log" {
 			continue
 		}
+		if strings.HasSuffix(fname, ".dbg") {
+			continue
+		}
 		logFile := filepath.Join(diffdir, fname)
 		name, groups, deltas, extra, err := repro.ParseReproLog(logFile)
 
