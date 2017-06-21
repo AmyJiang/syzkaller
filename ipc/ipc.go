@@ -47,7 +47,7 @@ const (
 	FlagSandboxSetuid                        // impersonate nobody user
 	FlagSandboxNamespace                     // use namespaces for sandboxing
 	FlagEnableTun                            // initialize and use tun in executor
-	FlagRepro                                // print log for reproducing discrepancy
+	FlagRepro
 
 	outputSize   = 16 << 20
 	signalOffset = 15 << 20
@@ -142,9 +142,6 @@ func MakeEnv(bin string, timeout time.Duration, flags uint64, pid int, debugFile
 		flags:     flags,
 		pid:       pid,
 		debugFile: debugFile,
-	}
-	if flags&FlagDebug == 1 {
-		env.debugFile = os.Stdout
 	}
 	if len(env.bin) == 0 {
 		return nil, fmt.Errorf("binary is empty string")
@@ -530,7 +527,7 @@ func makeCommand(pid int, bin []string, timeout time.Duration, flags uint64, inF
 	cmd.ExtraFiles = []*os.File{inFile, outFile, outrp, inwp}
 	cmd.Env = []string{}
 	cmd.Dir = dir
-	if debugFile == nil { // flags&FlagDebug == 0 {
+	if flags&FlagDebug == 0 {
 		cmd.Stdout = wp
 		cmd.Stderr = wp
 		go func(c *command) {

@@ -96,7 +96,7 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 		return "", fmt.Errorf("failed to copy to VM: %v", err)
 	}
 	vmLogFile := filepath.Join("/tmp", fname+".log")
-	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -min",
+	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -debug -min",
 		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"), vmLogFile)
 	Logf(0, "executing command: %v", command)
 	outc, errc, err := reproducer.inst.Run(time.Minute*30, reproducer.stop, command)
@@ -111,6 +111,10 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 	if err := reproducer.inst.MoveOut(vmLogFile, hostLog); err != nil {
 		return "", fmt.Errorf("failed to copy out log file: %v", err)
 	}
+	if err := reproducer.inst.MoveOut(vmLogFile+".dbg", hostLog+".dbg"); err != nil {
+		return "", fmt.Errorf("failed to copy out log file: %v", err)
+	}
+
 	Logf(0, "copied out log file from vm: %v", vmLogFile)
 
 	return hostLog, nil

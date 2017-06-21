@@ -20,7 +20,6 @@ import (
 var (
 	flagTestfs   = flag.String("testfs", "./", "a colon-separated list of test filesystems")
 	flagLog      = flag.String("log", "repro.log", "summary of reproduction and(or) minimization")
-	flagDbg      = flag.String("dbg", "none", "executor log (type: none, stdout, log)")
 	flagExecutor = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagProg     = flag.String("prog", "", "diff-inducing program to reproduce")
 	flagMinimize = flag.Bool("min", false, "minimize input program")
@@ -33,34 +32,24 @@ var (
 func initExecutor() (*ipc.Env, *os.File, error) {
 	// FIXME: set flags, cover=0, threaded=0 collide=0
 	var flags uint64
-	timeout := 3 * time.Minute
 	flags |= ipc.FlagRepro
+	flags |= ipc.FlagDebug
+	timeout := 3 * time.Minute
 
 	var readPipe, writePipe *os.File
 	var err error
 
-	switch *flagDbg {
-	case "none":
-		readPipe = nil
-		writePipe = nil
-	case "stdout":
-		readPipe = nil
-		writePipe = os.Stdout
-	case "log":
-		readPipe, writePipe, err = os.Pipe()
-		if err != nil {
-			readPipe.Close()
-			writePipe.Close()
-			return nil, nil, fmt.Errorf("failed to init executor: %v", err)
-		}
+	readPipe, writePipe, err = os.Pipe()
+	if err != nil {
+		readPipe.Close()
+		writePipe.Close()
+		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
 	}
 
 	env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, 0, writePipe)
 	if err != nil {
-		if writePipe != os.Stdout {
-			writePipe.Close()
-			readPipe.Close()
-		}
+		writePipe.Close()
+		readPipe.Close()
 		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
 	}
 
@@ -194,6 +183,7 @@ func reproduce() error {
 				break
 			}
 		}
+		dbgFile.Close()
 	}()
 
 	p, err := parseInput(*flagProg)
@@ -311,21 +301,12 @@ func main() {
 		Fatalf("failed to create log file: %v", err)
 	}
 
-	dbgFile = nil
-	switch *flagDbg {
-	case "none":
-	case "stdout":
-	case "log":
-		dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-		defer dbgFile.Close()
-		if err != nil {
-			logFile.Close()
-			dbgFile.Close()
-			Fatalf("failed to create log file: %v", err)
-		}
-	default:
+	dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	defer dbgFile.Close()
+	if err != nil {
 		logFile.Close()
-		Fatalf("flag debug must be one of none/stdout/log")
+		dbgFile.Close()
+		Fatalf("failed to create log file: %v", err)
 	}
 
 	if err := reproduce(); err != nil {
