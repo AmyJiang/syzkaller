@@ -478,6 +478,10 @@ func (mgr *Manager) updateDiffs(logFile string) {
 	}
 	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(logFile))
 
+	if !prog.IsSingleUser(minProg) {
+		mgr.stats["multiuser diffs"]++
+	}
+
 	minProgStr := minProg.Serialize()
 	sig := hash.String(minProgStr)
 	mgr.diffDB.Save(sig, minProgStr, 0)
