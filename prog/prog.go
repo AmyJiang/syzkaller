@@ -273,3 +273,16 @@ func SetUser(p *Prog, user Uid) {
 		c.User = user
 	}
 }
+
+func IsSingleUser(p *Prog) bool {
+	if len(p.Calls) == 0 {
+		return true
+	}
+	u := p.Calls[0].User
+	for _, c := range p.Calls {
+		if c.User != u {
+			return false
+		}
+	}
+	return true
+}
