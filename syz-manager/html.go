@@ -281,6 +281,8 @@ func (mgr *Manager) httpDiff(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	data.Diffs, err = collectDiffs(mgr.cfg.Workdir)
+	sort.Sort(UIDiffArray(data.Diffs))
+
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to collect diff logs: %v", err), http.StatusInternalServerError)
 		return
@@ -327,7 +329,7 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 			continue
 		}
 		logFile := filepath.Join(diffdir, fname)
-		_, _, groups, deltas, extra, err := repro.ParseStates(logFile)
+		name, groups, deltas, extra, err := repro.ParseReproLog(logFile)
 
 		if err != nil {
 			return nil, err
@@ -335,6 +337,7 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 
 		d := &UIDiff{
 			Log:    filepath.Join("logs", fname),
+			Name:   name,
 			Groups: groups,
 			Deltas: deltas,
 			Extra:  extra,
@@ -501,6 +504,7 @@ type UICrash struct {
 
 type UIDiff struct {
 	Log    string
+	Name   string
 	Groups []int
 	Deltas []string
 	Extra  string
@@ -560,6 +564,12 @@ type UICrashArray []*UICrash
 func (a UICrashArray) Len() int           { return len(a) }
 func (a UICrashArray) Less(i, j int) bool { return a[i].Time.After(a[j].Time) }
 func (a UICrashArray) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+
+type UIDiffArray []*UIDiff
+
+func (a UIDiffArray) Len() int           { return len(a) }
+func (a UIDiffArray) Less(i, j int) bool { return a[i].Name < a[j].Name }
+func (a UIDiffArray) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
 var summaryTemplate = template.Must(template.New("").Parse(addStyle(`
 <!doctype html>
@@ -795,6 +805,7 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
 <table>
 	<tr>
 		<th>Log</th>
+        <th>Name</th>
         {{range $fs := $.Filesystems}}
         <th>{{$fs}}</th>
         {{end}}
@@ -803,6 +814,7 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
 	{{range $d := $.Diffs}}
 	<tr>
 		<td><a href="/file?name={{$d.Log}}">{{$d.Log}}</a></td>
+        <td>{{$d.Name}}</td>
         {{range $i, $g := $d.Groups }}
         <td>{{$g}}:{{index $d.Deltas $i}}</td>
 		{{end}}

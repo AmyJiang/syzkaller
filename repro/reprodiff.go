@@ -255,7 +255,7 @@ func ParseMinProg(log string) (*prog.Prog, error) {
 	return minProg, nil
 }
 
-func ParseStates(log string) (states []string, res []string, groups []int, deltas []string, resDiff string, err error) {
+func ParseReproLog(log string) (name string, groups []int, deltas []string, resDiff string, err error) {
 	var logFile *os.File
 	logFile, err = os.Open(log)
 	defer logFile.Close()
@@ -264,6 +264,8 @@ func ParseStates(log string) (states []string, res []string, groups []int, delta
 	}
 
 	scanner := bufio.NewScanner(logFile)
+	var states, res []string
+	var minProg *prog.Prog
 	for scanner.Scan() {
 		if strings.HasPrefix(scanner.Text(), "## State") {
 			states, err = readStates(scanner)
@@ -280,8 +282,20 @@ func ParseStates(log string) (states []string, res []string, groups []int, delta
 			if err != nil {
 				return
 			}
+			if len(res) == 0 {
+				err = fmt.Errorf("empty return values")
+				return
+			}
+		}
+		if strings.HasPrefix(scanner.Text(), "## Minimized") {
+			minProg, err = readProg(scanner)
+			if err != nil {
+				return
+			}
+			name = minProg.String()
 			break
 		}
+
 	}
 	err = scanner.Err()
 	if err != io.EOF && err != nil {
