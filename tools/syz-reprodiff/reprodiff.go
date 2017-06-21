@@ -19,30 +19,48 @@ import (
 
 var (
 	flagTestfs   = flag.String("testfs", "./", "a colon-separated list of test filesystems")
-	flagLog      = flag.String("log", "repro.log", "reproducing log")
+	flagLog      = flag.String("log", "repro.log", "summary of reproduction and(or) minimization")
+	flagDbg      = flag.String("dbg", "none", "executor log (type: none, stdout, log)")
 	flagExecutor = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagProg     = flag.String("prog", "", "diff-inducing program to reproduce")
 	flagMinimize = flag.Bool("min", false, "minimize input program")
 	flagSaveDir  = flag.Bool("save", false, "save working directory")
 	testfs       []string
 	logFile      *os.File
+	dbgFile      *os.File
 )
 
 func initExecutor() (*ipc.Env, *os.File, error) {
 	// FIXME: set flags, cover=0, threaded=0 collide=0
 	var flags uint64
-	timeout := 1 * time.Minute
+	timeout := 3 * time.Minute
 	flags |= ipc.FlagRepro
 
-	readPipe, writePipe, err := os.Pipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
+	var readPipe, writePipe *os.File
+	var err error
+
+	switch *flagDbg {
+	case "none":
+		readPipe = nil
+		writePipe = nil
+	case "stdout":
+		readPipe = nil
+		writePipe = os.Stdout
+	case "log":
+		readPipe, writePipe, err = os.Pipe()
+		if err != nil {
+			readPipe.Close()
+			writePipe.Close()
+			return nil, nil, fmt.Errorf("failed to init executor: %v", err)
+		}
 	}
 
 	env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, 0, writePipe)
 	if err != nil {
-		writePipe.Close()
-		readPipe.Close()
+		if writePipe != os.Stdout {
+			writePipe.Close()
+			readPipe.Close()
+		}
 		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
 	}
 
@@ -155,29 +173,28 @@ func writeOutput(output []byte) error {
 }
 
 func reproduce() error {
-	defer func() {
-		if logFile != nil {
-			logFile.Close()
-		}
-	}()
+	var env *ipc.Env
+	var debug *os.File
+	var err error
 
-	env, debug, err := initExecutor()
-	defer func() {
-		if env != nil {
-			env.CloseWithoutRm()
-		}
-		if debug != nil {
-			if err := writeLog("## Log:\n"); err != nil {
-				return
-			}
-			// FIXME: TIMEOUT
-			io.Copy(logFile, debug)
-		}
-	}()
-
+	env, debug, err = initExecutor()
+	defer env.CloseWithoutRm()
 	if err != nil {
 		return err
 	}
+
+	const BufSize int64 = 8 << 20
+	go func() {
+		if dbgFile == nil {
+			return
+		}
+		for {
+			_, err := io.CopyN(dbgFile, debug, BufSize)
+			if err != nil {
+				break
+			}
+		}
+	}()
 
 	p, err := parseInput(*flagProg)
 	if err != nil {
@@ -238,6 +255,7 @@ func reproduce() error {
 	if !*flagMinimize {
 		return nil
 	}
+
 	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
 		states, err := execute1(env, p1)
 		if err != nil {
@@ -271,6 +289,8 @@ func reproduce() error {
 }
 
 func main() {
+	var err error
+
 	flag.Parse()
 	if *flagProg == "" {
 		Fatalf("Must specify a diff-inducing program to reproduce")
@@ -281,13 +301,36 @@ func main() {
 		Fatalf("Must specify two or more test filesystems")
 	}
 
-	var err error
+	if *flagLog == "" {
+		Fatalf("Must specify a log file for reproduction/minimization summary")
+	}
 	logFile, err = os.OpenFile(*flagLog, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	defer logFile.Close()
 	if err != nil {
+		logFile.Close()
 		Fatalf("failed to create log file: %v", err)
 	}
 
+	dbgFile = nil
+	switch *flagDbg {
+	case "none":
+	case "stdout":
+	case "log":
+		dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+		defer dbgFile.Close()
+		if err != nil {
+			logFile.Close()
+			dbgFile.Close()
+			Fatalf("failed to create log file: %v", err)
+		}
+	default:
+		logFile.Close()
+		Fatalf("flag debug must be one of none/stdout/log")
+	}
+
 	if err := reproduce(); err != nil {
+		logFile.Close()
+		dbgFile.Close()
 		Fatalf("Failed to reproduce: %s", err)
 	}
 }
