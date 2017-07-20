@@ -463,27 +463,28 @@ func (mgr *Manager) vmLoop() {
 
 func (mgr *Manager) updateDiffs(logFile string) {
 	minProg, err := repro.ParseMinProg(logFile)
-
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
 	if err != nil {
+		mgr.mu.Lock()
 		mgr.failedDiffs = append(mgr.failedDiffs, filepath.Base(logFile))
+		mgr.mu.Unlock()
 		return
 	}
 
 	name := minProg.String()
+	minProgStr := minProg.Serialize()
+	sig := hash.String(minProgStr)
+
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+
 	if len(mgr.uniqueDiffs[name]) == 0 {
 		mgr.stats["unique diffs"]++
 		Logf(0, "[NEW] diff: %s", name)
 	}
 	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(logFile))
-
 	if !prog.IsSingleUser(minProg) {
 		mgr.stats["multiuser diffs"]++
 	}
-
-	minProgStr := minProg.Serialize()
-	sig := hash.String(minProgStr)
 	mgr.diffDB.Save(sig, minProgStr, 0)
 	if err := mgr.diffDB.Flush(); err != nil {
 		Logf(0, "failed to save minimized diff database: %v", err)

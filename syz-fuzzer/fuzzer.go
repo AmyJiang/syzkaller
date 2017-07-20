@@ -593,8 +593,17 @@ func reportDiff(p *prog.Prog) {
 		MinimizedProg: nil,
 	}
 
-	if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
+	try := 0
+	var err error
+retry:
+	if try >= 3 {
 		panic(err)
+	}
+	err = manager.Call("Manager.NewDiff", a, nil)
+	if err != nil {
+		Logf(0, "failed to report new diff:err=%s try=%v", err, try)
+		try += 1
+		goto retry
 	}
 }
 
