@@ -174,15 +174,19 @@ func compareState(s1 string, s2 string) []string {
 	if len(lines1) != len(lines2) {
 		fields[6] = true
 	} else {
-
 		for i, l1 := range lines1 {
 			l2 := lines2[i]
 			fields1 := strings.Split(l1, " ")
 			fields2 := strings.Split(l2, " ")
 			for i, f1 := range fields1 {
+				if i == 4 && strings.HasPrefix(fields1[0], "d") && strings.HasPrefix(fields2[0], "d") {
+					// Ignore directory sizes
+					continue
+				}
 				if f1 != fields2[i] {
 					fields[i] = true
 				}
+
 			}
 		}
 	}
