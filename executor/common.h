@@ -472,9 +472,12 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 std::string get_state(struct stat& st)
 {
 	char buf[1000];
-	sprintf(buf, "%lo,%ld,%ld,%ld",
-		(unsigned long)st.st_mode, (long)st.st_nlink,
-		(long)st.st_uid, (long)st.st_gid);
+	sprintf(buf, "%lo,%ld,%ld",
+		(unsigned long)st.st_mode, (long)st.st_uid, (long)st.st_gid);
+
+	if (!S_ISDIR(st.st_mode)) {
+		sprintf(buf + strlen(buf), ",%ld", (long)st.st_nlink);
+	}
 
 	if (S_ISREG(st.st_mode)) {
 		sprintf(buf + strlen(buf), ",%lld", (long long)st.st_size);

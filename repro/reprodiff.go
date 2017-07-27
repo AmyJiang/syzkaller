@@ -179,10 +179,14 @@ func compareState(s1 string, s2 string) []string {
 			fields1 := strings.Split(l1, " ")
 			fields2 := strings.Split(l2, " ")
 			for i, f1 := range fields1 {
-				if i == 4 && strings.HasPrefix(fields1[0], "d") && strings.HasPrefix(fields2[0], "d") {
-					// Ignore directory sizes
-					continue
+				if strings.HasPrefix(fields1[0], "d") && strings.HasPrefix(fields2[0], "d") {
+					if i == 4 || i == 1 {
+						// Ignore directory sizes
+						// Ignore directory link counts
+						continue
+					}
 				}
+
 				if f1 != fields2[i] {
 					fields[i] = true
 				}
