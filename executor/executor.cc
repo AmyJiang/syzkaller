@@ -138,9 +138,9 @@ void cover_reset(thread_t* th);
 uint64_t cover_read(thread_t* th);
 static uint32_t hash(uint32_t a);
 static bool dedup(uint32_t sig);
-uint32_t* state_open();
-void state_write(const char* cwdbuf, uint32_t* pos);
-static void encode_state(const std::map<std::string, std::string>& state, unsigned char* hash);
+uint32_t* state_write(const char* cwdbuf, uint32_t* pos);
+int get_state(const char* name, struct stat& st, uint32_t* state);
+int scan_fs(const char* dir);
 int user_set(thread_t* th);
 int user_reset(thread_t* th);
 
@@ -228,46 +228,86 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-uint32_t* state_open()
+uint32_t* state_write(const char* cwdbuf)
 {
 	if (flag_collide || !flag_collect_fs_state) {
-		return NULL;
+		return 0;
 	}
 
-	debug("clearing fs state: pos = %lx\n", output_data);
-	uint32_t* pos = output_data;
-	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t) + 1;
-	for (uint32_t i = 0; i < size; i++) {
-		*output_data = (uint32_t)0;
-		output_data++;
+	uint32_t* pos = output_pos;
+	if (scan_fs(cwdbuf)) {
+		exitf("scan_fs failed");
 	}
 	return pos;
 }
 
-void state_write(const char* cwdbuf, uint32_t* pos)
+int get_state(const char* name, struct stat& st, uint32_t* state)
 {
-	if (flag_collide || !flag_collect_fs_state) {
-		return;
+	const int BUF_LEN = 1000;
+	char buf[BUF_LEN];
+	memset(buf, 0, BUF_LEN);
+
+	snprintf(buf, BUF_LEN, ":%s %lo %ld %ld",
+		 name, (unsigned long)st.st_mode, (long)st.st_uid, (long)st.st_gid);
+	if (!S_ISDIR(st.st_mode)) {
+		snprintf(buf + strlen(buf), BUF_LEN, " %ld", (long)st.st_nlink);
+	}
+	if (S_ISREG(st.st_mode)) {
+		snprintf(buf + strlen(buf), BUF_LEN, " %lld", (long long)st.st_size);
 	}
 
-	if (!pos) {
-		return;
+	for (unsigned int i = 0; i < strlen(buf); i += 4) {
+		state[i / 4] = (uint32_t)buf[i + 3] << 24 |
+			       (uint32_t)buf[i + 2] << 16 |
+			       (uint32_t)buf[i + 1] << 8 |
+			       (uint32_t)buf[i];
+	}
+	return (strlen(buf) + 3) / 4;
+}
+
+int scan_fs(const char* dir)
+{
+	struct dirent** namelist;
+	int n;
+	n = scandir(dir, &namelist, NULL, alphasort);
+	if (n < 0) {
+		goto exit;
 	}
 
-	std::map<std::string, std::string> state;
-	update_state(cwdbuf, state);
-
-	unsigned char hash[SHA_DIGEST_LENGTH];
-	encode_state(state, hash);
-
-	uint32_t size = SHA_DIGEST_LENGTH / sizeof(uint32_t);
-	debug("collecting fs state: pos = %lx, size = %d\n", pos, size);
-
-	output_data = pos; // reset output_data
-	*pos++ = (uint32_t)size;
-	for (uint32_t i = 0; i < size; i++) {
-		*pos++ = (uint32_t)((uint32_t*)hash)[i];
+	char fname[256];
+	uint32_t state[1000];
+	while (n--) {
+		if (strcmp(namelist[n]->d_name, ".") == 0 || strcmp(namelist[n]->d_name, "..") == 0) {
+			continue;
+		}
+		snprintf(fname, 255, "%s/%s", dir, namelist[n]->d_name);
+		struct stat st;
+		if (lstat(fname, &st)) {
+			goto exit;
+		}
+		int size = get_state(fname, st, state);
+		for (int i = 0; i < size; i++) {
+			write_output(state[i]);
+		}
+		if (S_ISDIR(st.st_mode)) {
+			if (scan_fs(fname)) {
+				goto exit;
+			}
+		}
+		free(namelist[n]);
 	}
+	free(namelist);
+	return 0;
+
+exit:
+	if (namelist == NULL) {
+		return -1;
+	}
+	while (n--) {
+		free(namelist[n]);
+	}
+	free(namelist);
+	return -1;
 }
 
 void loop()
@@ -297,8 +337,6 @@ void loop()
 		flag_collect_cover = flags & (1 << 0);
 		flag_dedup_cover = flags & (1 << 1);
 		flag_collect_fs_state = flags & (1 << 2);
-
-		uint32_t* state_pos = state_open();
 
 		int pid = fork();
 		if (pid < 0)
@@ -379,7 +417,6 @@ void loop()
 		if (status == kErrorStatus)
 			error("child errored");
 
-		state_write(cwdbuf, state_pos);
 		if (!flag_repro) {
 			dbg("remove dir %s", cwdbuf);
 			remove_dir(cwdbuf);
@@ -390,17 +427,6 @@ void loop()
 	}
 }
 
-void encode_state(const std::map<std::string, std::string>& state, unsigned char* hash)
-{
-	std::stringstream ss;
-	for (auto it = state.begin(); it != state.end(); it++) {
-		ss << it->first << ":" << it->second << ";";
-	}
-	std::string state_str = ss.str();
-	debug("encode_state: %s\n", state_str.c_str());
-	SHA1((unsigned char*)state_str.c_str(), state_str.length(), hash);
-}
-
 void execute_one()
 {
 retry:
@@ -408,7 +434,9 @@ retry:
 	read_input(&input_pos); // flags
 	read_input(&input_pos); // pid
 	output_pos = output_data;
-	write_output(0); // Number of executed syscalls (updated later).
+	write_output(0);		       // Number of executed syscalls (updated later).
+	uint32_t* state_pos = write_output(0); // start of fs state (filled in later)
+	uint32_t* state_end = write_output(0); // end of fs state (filled in later)
 
 	if (!collide && !flag_threaded)
 		cover_enable(&threads[0]);
@@ -510,6 +538,11 @@ retry:
 			execute_call(th);
 			handle_completion(th);
 		}
+	}
+
+	if (flag_collect_fs_state) {
+		*state_pos = state_write(".") - output_data;
+		*state_end = output_pos - output_data;
 	}
 
 	if (flag_collide && !collide) {

@@ -56,9 +56,9 @@ func initExecutor() (*ipc.Env, *os.File, error) {
 	return env, readPipe, nil
 }
 
-func execute1(env *ipc.Env, prog *prog.Prog) ([]*ipc.State, error) {
+func execute1(env *ipc.Env, prog *prog.Prog) ([]*ipc.ExecResult, error) {
 	// FIXME: error, failed, hanged?
-	var states []*ipc.State
+	var states []*ipc.ExecResult
 	for _, fs := range testfs {
 		output, _, failed, hanged, err, state := env.Exec(prog, false, false, true, fs)
 		states = append(states, state)
@@ -128,7 +128,7 @@ func writeFsStates(workdirs []string) error {
 	return nil
 }
 
-func writeRes(p *prog.Prog, states []*ipc.State) error {
+func writeRes(p *prog.Prog, states []*ipc.ExecResult) error {
 	if err := writeLog("## Return values:\n"); err != nil {
 		return err
 	}
@@ -215,14 +215,15 @@ func reproduce() error {
 		return err
 	}
 	// Check discrepancy
-	if !ipc.CheckDiscrepancy(states) {
+	if !ipc.CheckHash(states) {
 		writeLog("Failed to reproduce discrepancy: %v\n\n", err)
 		return fmt.Errorf("failed to reproduce discrepancy")
 	}
+
 	Logf(0, "reproduced program %s", p)
 	var workdirs []string
 	for _, s := range states {
-		workdirs = append(workdirs, s.Workdir)
+		workdirs = append(workdirs, s.FS)
 	}
 	defer func() {
 		if *flagSaveDir {
@@ -234,6 +235,7 @@ func reproduce() error {
 		}
 	}()
 
+	// TODO: directly write states from ExecResult
 	if err := writeFsStates(workdirs); err != nil {
 		return err
 	}
@@ -247,13 +249,14 @@ func reproduce() error {
 	}
 
 	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+		// TODO: system call value!
 		states, err := execute1(env, p1)
 		if err != nil {
 			// FIXME: how to compare in the existence of error/hang?
 			Logf(0, "Execution threw error: %v", err)
 			return false
 		} else {
-			cond := ipc.CheckDiscrepancy(states)
+			cond := ipc.CheckHash(states)
 			return cond
 		}
 	}, false)
@@ -265,7 +268,7 @@ func reproduce() error {
 	if err != nil {
 		return err
 	}
-	if ipc.CheckDiscrepancy(states) {
+	if ipc.CheckHash(states) {
 		p1 = p2
 	}
 

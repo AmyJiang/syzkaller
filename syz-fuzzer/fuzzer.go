@@ -564,25 +564,6 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	corpusMu.Unlock()
 }
 
-// minimize a diff-inducing program
-func minimizeDiff(pid int, env *ipc.Env, p *prog.Prog) *prog.Prog {
-	// reproduce
-	_, states := execute1(pid, env, p, &statExecDiff, false, true)
-	if !ipc.CheckDiscrepancy(states) {
-		Logf(1, "reproducing: %s from %v failed", p, *flagName)
-		return nil
-	}
-
-	Logf(1, "minimizing: %s from %v", p, *flagName)
-	// FIXME: how does prog.Minimize work entirely
-	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-		Logf(1, "minimizing: %s", p1)
-		_, states := execute1(pid, env, p1, &statExecDiff, false, true)
-		return ipc.CheckDiscrepancy(states)
-	}, false)
-	return p1
-}
-
 func reportDiff(p *prog.Prog) {
 	// report a new diff-inducing program
 	atomic.AddUint64(&statNewDiff, 1)
@@ -612,7 +593,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	signalMu.RLock()
 	defer signalMu.RUnlock()
 
-	if ipc.CheckDiscrepancy(states) {
+	if ipc.CheckHash(states) {
 		reportDiff(p)
 		return info
 	}
@@ -649,7 +630,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 
 var logMu sync.Mutex
 
-func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (combinedInfo []ipc.CallInfo, states []*ipc.State) {
+func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (combinedInfo []ipc.CallInfo, states []*ipc.ExecResult) {
 	// intercept execute1 to execute one program under multiple rootdirs
 	// TODO: fix the stat (= total all * #rootdirs)
 	// ChangeLog: 03/29/2017, do not add diff back to corpus
@@ -670,7 +651,7 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool,
 	return
 }
 
-func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, fs string) (info []ipc.CallInfo, state *ipc.State) {
+func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, fs string) (info []ipc.CallInfo, state *ipc.ExecResult) {
 	if false {
 		// For debugging, this function must not be executed with locks held.
 		corpusMu.Lock()

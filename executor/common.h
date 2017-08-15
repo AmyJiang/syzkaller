@@ -468,54 +468,6 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 	}
 }
 
-#if defined(SYZ_EXECUTOR)
-std::string get_state(struct stat& st)
-{
-	char buf[1000];
-	sprintf(buf, "%lo,%ld,%ld",
-		(unsigned long)st.st_mode, (long)st.st_uid, (long)st.st_gid);
-
-	if (!S_ISDIR(st.st_mode)) {
-		sprintf(buf + strlen(buf), ",%ld", (long)st.st_nlink);
-	}
-
-	if (S_ISREG(st.st_mode)) {
-		sprintf(buf + strlen(buf), ",%lld", (long long)st.st_size);
-	}
-
-	return std::string(buf);
-}
-
-void update_state(const char* dir, std::map<std::string, std::string>& state)
-{
-	DIR* dp;
-	struct dirent* ep;
-	dp = opendir(dir);
-	if (dp == NULL) {
-		dbg("update_state: opendir(%s) failed", dir);
-		return;
-	}
-	while ((ep = readdir(dp))) {
-		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
-			continue;
-
-		char fname[256];
-		sprintf(fname, "%s/%s", dir, ep->d_name);
-
-		struct stat st;
-		if (lstat(fname, &st))
-			exitf("update_state: lstat(%s) failed", fname);
-
-		state[std::string(fname)] = get_state(st);
-
-		if (S_ISDIR(st.st_mode)) {
-			update_state(fname, state);
-		}
-	}
-	closedir(dp);
-}
-#endif
-
 void debug_state(const char* dir)
 {
 	DIR* dp;

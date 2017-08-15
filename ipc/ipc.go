@@ -5,6 +5,7 @@ package ipc
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -226,24 +227,25 @@ type CallInfo struct {
 	Errno int
 }
 
-type State struct {
-	Stats   []uint32
-	Res     []int32
-	Errnos  []int32
-	Workdir string
+type ExecResult struct {
+	State     []byte
+	StateHash [20]byte
+	Res       []int32
+	Errnos    []int32
+	FS        string
 }
 
-func CheckDiscrepancy(states []*State) bool {
-	// not discrepancy if statets is nil
-	for i := 1; i < len(states); i += 1 {
-		s1 := states[i-1]
-		s2 := states[i]
-		if len(s1.Stats) != len(s2.Stats) || len(s1.Res) != len(s2.Res) {
+func CheckHash(rs []*ExecResult) bool {
+	// not discrepancy if state hash is nil
+	for i := 1; i < len(rs); i += 1 {
+		s1 := rs[i-1]
+		s2 := rs[i]
+		if len(s1.StateHash) != len(s2.StateHash) || len(s1.Res) != len(s2.Res) {
 			return true
 		}
 
-		for j, v := range s1.Stats {
-			if s2.Stats[j] != v {
+		for j, v := range s1.StateHash {
+			if s2.StateHash[j] != v {
 				return true
 			}
 		}
@@ -263,7 +265,7 @@ func CheckDiscrepancy(states []*State) bool {
 // failed: true if executor has detected a kernel bug
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
-func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, state *State) {
+func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, r *ExecResult) {
 
 	if p != nil {
 		// Copy-in serialized program.
@@ -307,18 +309,18 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir strin
 	}
 
 	if env.flags&FlagSignal != 0 || needFsState {
-		info, err0, state = env.readOutCoverage(p, needFsState)
+		info, err0, r = env.readOutResult(p, needFsState)
 		if needFsState {
-			state.Workdir = env.cmds[rootDir].dir
+			r.FS = env.cmds[rootDir].dir
 		} else {
-			state = nil
+			r = nil
 		}
 	}
 
 	return
 }
 
-func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo, err0 error, state *State) {
+func (env *Env) readOutResult(p *prog.Prog, needFsState bool) (info []CallInfo, err0 error, r *ExecResult) {
 	out := ((*[1 << 28]uint32)(unsafe.Pointer(&env.Out[0])))[:len(env.Out)/int(unsafe.Sizeof(uint32(0)))]
 	readOut := func(v *uint32) bool {
 		if len(out) == 0 {
@@ -331,32 +333,30 @@ func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo
 
 	info = nil
 	err0 = nil
-	var statSize uint32
-	if needFsState {
-		state = &State{
-			Workdir: "",
-			Res:     make([]int32, 0),
-			Errnos:  make([]int32, 0),
-			Stats:   make([]uint32, 0),
-		}
-		if !readOut(&statSize) {
-			err0 = fmt.Errorf("executor %v: failed to read filesystem status", env.pid)
-			return
-		}
-		if statSize != 5 {
-			fmt.Printf("[FsState]: size = %v\n", statSize)
-			err0 = fmt.Errorf("executor %v: corrupted filesystem status", env.pid)
-			return
-		}
-		state.Stats = append(state.Stats, out[:statSize:statSize]...)
-		out = out[statSize:]
-	}
-
 	var ncmd uint32
 	if !readOut(&ncmd) {
 		err0 = fmt.Errorf("executor %v: failed to read output coverage", env.pid)
 		return
 	}
+
+	if needFsState {
+		var statePos, stateEnd uint32
+		if !readOut(&statePos) || !readOut(&stateEnd) {
+			err0 = fmt.Errorf("executor %v: failed to read filesystem status", env.pid)
+			return
+		}
+		r = &ExecResult{
+			FS:        "",
+			Res:       make([]int32, 0),
+			Errnos:    make([]int32, 0),
+			State:     make([]byte, 0),
+			StateHash: [20]byte{},
+		}
+		r.State = append(r.State, env.Out[statePos*4:stateEnd*4]...)
+		r.StateHash = sha1.Sum(r.State)
+		out = out[:statePos]
+	}
+
 	info = make([]CallInfo, len(p.Calls))
 	dumpCov := func() string {
 		buf := new(bytes.Buffer)
@@ -393,8 +393,8 @@ func (env *Env) readOutCoverage(p *prog.Prog, needFsState bool) (info []CallInfo
 		}
 		info[callIndex].Errno = int(errno)
 		if needFsState {
-			state.Res = append(state.Res, int32(res))
-			state.Errnos = append(state.Errnos, int32(errno))
+			r.Res = append(r.Res, int32(res))
+			r.Errnos = append(r.Errnos, int32(errno))
 		}
 
 		if signalSize > uint32(len(out)) {
