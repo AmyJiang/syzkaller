@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -235,25 +236,27 @@ type ExecResult struct {
 	FS        string
 }
 
+// CheckHash cross-checks the hashes of file system states and returns true
+// if at least one file system is in a different state from others.
 func CheckHash(rs []*ExecResult) bool {
-	// not discrepancy if state hash is nil
 	for i := 1; i < len(rs); i += 1 {
-		s1 := rs[i-1]
-		s2 := rs[i]
-		if len(s1.StateHash) != len(s2.StateHash) || len(s1.Res) != len(s2.Res) {
+		if !reflect.DeepEqual(rs[0].StateHash, rs[i].StateHash) {
 			return true
 		}
+	}
+	return false
+}
 
-		for j, v := range s1.StateHash {
-			if s2.StateHash[j] != v {
-				return true
-			}
+// CheckReturns cross-checks the return values of syscalls executed in tested
+// filesystems and returns true if at least one syscall returns differently
+// in two or more file systems.
+func CheckReturns(rs []*ExecResult) bool {
+	for i := 1; i < len(rs); i += 1 {
+		if !reflect.DeepEqual(rs[0].Res, rs[i].Res) {
+			return true
 		}
-
-		for j, v := range s1.Res {
-			if s2.Res[j] != v || s2.Errnos[j] != s1.Errnos[j] {
-				return true
-			}
+		if !reflect.DeepEqual(rs[0].Errnos, rs[i].Errnos) {
+			return true
 		}
 	}
 	return false
