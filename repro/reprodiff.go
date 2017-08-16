@@ -3,15 +3,18 @@ package repro
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/google/syzkaller/config"
+	"github.com/google/syzkaller/ipc"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
 	"github.com/google/syzkaller/vm"
@@ -123,116 +126,86 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 func readProg(scanner *bufio.Scanner) (*prog.Prog, error) {
 	var buf bytes.Buffer
 	for scanner.Scan() && scanner.Text() != "" {
-		if _, err := buf.WriteString(scanner.Text()); err != nil {
+		if _, err := buf.WriteString(scanner.Text() + "\n"); err != nil {
 			return nil, fmt.Errorf("failed to read prog from repro log: %v\n%s", err, buf.String())
 		}
-		if _, err := buf.Write([]byte("\n")); err != nil {
-			return nil, fmt.Errorf("failed to read prog from repro log: %v\n%s", err, buf.String())
-		}
+		/*		if _, err := buf.WriteString("\n"); err != nil {
+					return nil, fmt.Errorf("failed to read prog from repro log: %v\n%s", err, buf.String())
+				}
+		*/
 	}
 	prog, err := prog.Deserialize(buf.Bytes())
 	if err != nil || prog == nil || len(prog.Calls) == 0 {
 		return nil, fmt.Errorf("failed to read prog from repro log: %v\n%s", err, buf.String())
 	}
-	return prog, err
+	return prog, nil
 }
 
-func readStates(scanner *bufio.Scanner) ([]string, error) {
-	states := []string{}
+func readStates(scanner *bufio.Scanner) ([]*ipc.ExecResult, error) {
+	var rs []*ipc.ExecResult
+	var r *ipc.ExecResult
+
 	for scanner.Scan() && !strings.HasPrefix(scanner.Text(), "## ") {
 		if strings.HasPrefix(scanner.Text(), "Failed") {
-			return nil, fmt.Errorf("failed to read states: %v", scanner.Text())
+			return nil, fmt.Errorf("%s", scanner.Text())
 		}
-		if !strings.HasPrefix(scanner.Text(), "###") {
-			continue
+		if strings.HasPrefix(scanner.Text(), "###") {
+			r = &ipc.ExecResult{
+				FS:        strings.Split(scanner.Text(), " ")[1],
+				Res:       []int32{},
+				Errnos:    []int32{},
+				State:     []byte{},
+				StateHash: [20]byte{},
+			}
 		}
-		st := ""
 		for scanner.Scan() && scanner.Text() != "" {
-			st += scanner.Text()
-			st += "\n"
+			r.State = append(r.State, []byte(scanner.Text()+"\n")...)
 		}
-		states = append(states, st)
+		r.StateHash = sha1.Sum(r.State)
+		rs = append(rs, r)
 	}
-	return states, nil
+
+	if rs == nil {
+		return nil, fmt.Errorf("No filesystem states")
+	}
+	return rs, nil
 }
 
-func readRes(scanner *bufio.Scanner) ([]string, error) {
-	var res []string
-
-	for scanner.Scan() && scanner.Text() != "" {
-		res = append(res, scanner.Text())
-	}
-	return res, nil
-}
-
-var fieldNames = []string{"Perm", "Link", "User", "Group", "Size", "Name", "File"}
-
-func compareState(s1 string, s2 string) []string {
-	fields := make(map[int]bool)
-	lines1 := strings.Split(s1, "\n")
-	lines2 := strings.Split(s2, "\n")
-	if len(lines1) != len(lines2) {
-		fields[6] = true
-	} else {
-		for i, l1 := range lines1 {
-			l2 := lines2[i]
-			fields1 := strings.Split(l1, " ")
-			fields2 := strings.Split(l2, " ")
-			for i, f1 := range fields1 {
-				if strings.HasPrefix(fields1[0], "d") && strings.HasPrefix(fields2[0], "d") {
-					if i == 4 || i == 1 {
-						// Ignore directory sizes
-						// Ignore directory link counts
-						continue
-					}
-				}
-
-				if f1 != fields2[i] {
-					fields[i] = true
-				}
-
-			}
-		}
-	}
-
-	delta := []string{}
-	for k := range fields {
-		delta = append(delta, fieldNames[k])
-	}
-	return delta
-}
-
-func diffStates(states []string) ([]int, []string) {
-	groups := make([]int, len(states))
-	deltas := make([]string, len(states))
+func groupStates(rs []*ipc.ExecResult) (groups []int) {
 	group_id := make(map[string]int)
-
-	for i, st := range states {
+	for i, r := range rs {
+		hash := string(r.StateHash[:])
 		if i == 0 {
-			groups[0] = 0
-			deltas[0] = ""
-			group_id[states[0]] = 0
-			continue
-		}
-		if id, ok := group_id[st]; ok {
-			groups[i] = id
-			deltas[i] = deltas[id]
+			groups = append(groups, 0)
+			group_id[hash] = 0
 		} else {
-			delta := compareState(states[0], st)
-			groups[i] = i
-			deltas[i] = strings.Join(delta, ",")
+			if id, ok := group_id[hash]; ok {
+				groups = append(groups, id)
+			} else {
+				groups = append(groups, i)
+				group_id[hash] = i
+			}
 		}
 	}
-	return groups, deltas
+	return
 }
 
-func diffRes(res []string) string {
-	for _, r := range res {
-		tmp := strings.Split(strings.TrimRight(r, " "), " ")[1:]
-		for i := 1; i < len(tmp); i++ {
-			if tmp[i] != tmp[i-1] {
-				return r
-			}
+func readReturns(scanner *bufio.Scanner) ([]string, error) {
+	var returns []string
+	for scanner.Scan() && scanner.Text() != "" {
+		returns = append(returns, scanner.Text())
+	}
+	if returns == nil {
+		return nil, fmt.Errorf("No return values")
+	}
+	return returns, nil
+}
+
+func differenceReturns(returns []string) string {
+	for _, l := range returns {
+		ret := strings.Fields(l)[1:]
+		if !reflect.DeepEqual(ret[:len(ret)-1], ret[1:]) {
+			return l
 		}
 	}
 	return ""
@@ -240,10 +213,10 @@ func diffRes(res []string) string {
 
 func ParseMinProg(log string) (*prog.Prog, error) {
 	logFile, err := os.Open(log)
-	defer logFile.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer logFile.Close()
 
 	var minProg *prog.Prog
 	scanner := bufio.NewScanner(logFile)
@@ -267,35 +240,29 @@ func ParseMinProg(log string) (*prog.Prog, error) {
 	return minProg, nil
 }
 
-func ParseReproLog(log string) (name string, groups []int, deltas []string, resDiff string, err error) {
+func ParseReproLog(log string) (name string, groups []int, diff string, diffRet string, err error) {
 	var logFile *os.File
 	logFile, err = os.Open(log)
-	defer logFile.Close()
 	if err != nil {
 		return
 	}
+	defer logFile.Close()
+
+	var rs []*ipc.ExecResult
+	var minProg *prog.Prog
+	var returns []string
 
 	scanner := bufio.NewScanner(logFile)
-	var states, res []string
-	var minProg *prog.Prog
 	for scanner.Scan() {
 		if strings.HasPrefix(scanner.Text(), "## State") {
-			states, err = readStates(scanner)
+			rs, err = readStates(scanner)
 			if err != nil {
-				return
-			}
-			if len(states) == 0 {
-				err = fmt.Errorf("empty states")
 				return
 			}
 		}
 		if strings.HasPrefix(scanner.Text(), "## Return") {
-			res, err = readRes(scanner)
+			returns, err = readReturns(scanner)
 			if err != nil {
-				return
-			}
-			if len(res) == 0 {
-				err = fmt.Errorf("empty return values")
 				return
 			}
 		}
@@ -307,13 +274,14 @@ func ParseReproLog(log string) (name string, groups []int, deltas []string, resD
 			name = minProg.String()
 			break
 		}
-
 	}
 	err = scanner.Err()
 	if err != io.EOF && err != nil {
 		return
 	}
-	groups, deltas = diffStates(states)
-	resDiff = diffRes(res)
+
+	groups = groupStates(rs)
+	diff = string(Difference(rs))
+	diffRet = differenceReturns(returns)
 	return
 }
