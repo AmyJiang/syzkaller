@@ -247,13 +247,19 @@ int get_state(const char* name, struct stat& st, uint32_t* state)
 	char buf[BUF_LEN];
 	memset(buf, 0, BUF_LEN);
 
-	snprintf(buf, BUF_LEN, ":%s %lo %ld %ld",
+	snprintf(buf, BUF_LEN, "\n%s %lo %ld %ld",
 		 name, (unsigned long)st.st_mode, (long)st.st_uid, (long)st.st_gid);
+
 	if (!S_ISDIR(st.st_mode)) {
 		snprintf(buf + strlen(buf), BUF_LEN, " %ld", (long)st.st_nlink);
+	} else {
+		snprintf(buf + strlen(buf), BUF_LEN, " %s", "--");
 	}
+
 	if (S_ISREG(st.st_mode)) {
 		snprintf(buf + strlen(buf), BUF_LEN, " %lld", (long long)st.st_size);
+	} else {
+		snprintf(buf + strlen(buf), BUF_LEN, " %s", "--");
 	}
 
 	for (unsigned int i = 0; i < strlen(buf); i += 4) {
