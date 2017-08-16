@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"github.com/google/syzkaller/ipc"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
+	"github.com/google/syzkaller/repro"
 )
 
 var (
@@ -80,7 +80,7 @@ func writeLog(template string, vargs ...interface{}) error {
 func writeStates(rs []*ipc.ExecResult) error {
 	// cmd := fmt.Sprintf("cd %v; ls -lR . | grep -v 'total' | awk '{print $1, $2, $3, $4, $5, $9}'", filepath.Join(dir, "0"))
 	for _, r := range rs {
-		if err := writeLog("### %s", strings.Split(r.FS, "/")[1]); err != nil {
+		if err := writeLog("### %s", r.FS); err != nil {
 			return err
 		}
 		if err := writeLog("%s\n\n", r.State); err != nil {
@@ -121,44 +121,6 @@ func writeOutput(output []byte) error {
 	}
 
 	return nil
-}
-
-// diffState returns a description of differences between the states of two file systems.
-var diffType = [][]byte{
-	[]byte("Name"), []byte("Mode"), []byte("Uid"), []byte("Gid"), []byte("Link"), []byte("Size")}
-
-func diffState(s0 []byte, s []byte) (diff []byte) {
-	files := bytes.Split(s, []byte{'\n'})[1:]
-	files0 := bytes.Split(s0, []byte{'\n'})[1:]
-	if len(files) != len(files0) {
-		diff = append(diff, "File-Num "...)
-		return
-	}
-	for i, _ := range files {
-		fields := bytes.Fields(files[i])
-		fields0 := bytes.Fields(files0[i])
-		for j, _ := range fields {
-			if !reflect.DeepEqual(fields[j], fields0[j]) {
-				diff = append(diff, fmt.Sprintf("%s-%s ", fields[0], diffType[j])...)
-			}
-		}
-	}
-	return
-}
-
-func difference(rs []*ipc.ExecResult) []byte {
-	var diff []byte
-	for i, r := range rs {
-		fs := strings.Split(r.FS, "/")[1]
-		if i == 0 {
-			continue
-		}
-		d := diffState(rs[0].State, rs[i].State)
-		if len(d) > 0 {
-			diff = append(diff, fmt.Sprintf("%s:%s\n", fs, d)...)
-		}
-	}
-	return diff
 }
 
 func initExecutor() (*ipc.Env, *os.File, error) {
@@ -250,7 +212,6 @@ func reproduce() error {
 	diff_state = ipc.CheckHash(rs)
 	diff_return = ipc.CheckReturns(rs)
 	if !diff_state && !diff_return {
-		writeLog("\nFailed to reproduce discrepancy: %v\n\n", err)
 		return fmt.Errorf("failed to reproduce discrepancy")
 	}
 
@@ -264,7 +225,7 @@ func reproduce() error {
 	if diff_state {
 		// Minimize the program while keeping all original discrepancies
 		// in filesystem states
-		diff = difference(rs)
+		diff = repro.Difference(rs)
 		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
 			rs1, err := execute1(env, p1)
 			if err != nil {
@@ -272,7 +233,7 @@ func reproduce() error {
 				Logf(0, "Execution threw error: %v", err)
 				return false
 			} else {
-				return reflect.DeepEqual(diff, difference(rs1))
+				return reflect.DeepEqual(diff, repro.Difference(rs1))
 			}
 		}, false)
 	} else {
@@ -295,7 +256,7 @@ func reproduce() error {
 	if err != nil {
 		return err
 	}
-	if diff_state && reflect.DeepEqual(diff, difference(rs2)) || ipc.CheckReturns(rs2) {
+	if diff_state && reflect.DeepEqual(diff, repro.Difference(rs2)) || ipc.CheckReturns(rs2) {
 		p1 = p2
 	}
 
