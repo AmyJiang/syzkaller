@@ -1,17 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
-	"github.com/google/syzkaller/fileutil"
 	"github.com/google/syzkaller/ipc"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
@@ -29,44 +29,15 @@ var (
 	dbgFile      *os.File
 )
 
-func initExecutor() (*ipc.Env, *os.File, error) {
-	// FIXME: set flags, cover=0, threaded=0 collide=0
-	var flags uint64
-	flags |= ipc.FlagRepro
-	flags |= ipc.FlagDebug
-	timeout := 3 * time.Minute
-
-	var readPipe, writePipe *os.File
-	var err error
-
-	readPipe, writePipe, err = os.Pipe()
-	if err != nil {
-		readPipe.Close()
-		writePipe.Close()
-		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
-	}
-
-	env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, 0, writePipe)
-	if err != nil {
-		writePipe.Close()
-		readPipe.Close()
-		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
-	}
-
-	return env, readPipe, nil
-}
-
 func execute1(env *ipc.Env, prog *prog.Prog) ([]*ipc.ExecResult, error) {
-	// FIXME: error, failed, hanged?
-	var states []*ipc.ExecResult
+	var rs []*ipc.ExecResult
 	for _, fs := range testfs {
-		output, _, failed, hanged, err, state := env.Exec(prog, false, false, true, fs)
-		states = append(states, state)
+		output, _, failed, hanged, err, r := env.Exec(prog, false, false, true, fs)
+		rs = append(rs, r)
 		if err != nil {
 			Logf(0, "ERR: executor threw error: %s", err)
 			return nil, err
 		}
-
 		if failed {
 			Logf(0, "BUG: executor-detected bug:\n%s", output)
 			return nil, fmt.Errorf("executor-detected failure")
@@ -77,21 +48,19 @@ func execute1(env *ipc.Env, prog *prog.Prog) ([]*ipc.ExecResult, error) {
 		}
 	}
 
-	return states, nil
+	return rs, nil
 }
 
-func parseInput(inputFile string) (*prog.Prog, error) {
+func parseInput(inputFile string) (p *prog.Prog, err error) {
 	data, err := ioutil.ReadFile(*flagProg)
 	if err != nil {
-		return nil, err
+		return
 	}
-
-	p, err := prog.Deserialize(data)
+	p, err = prog.Deserialize(data)
 	if err != nil {
-		return nil, err
+		return
 	}
-
-	return p, nil
+	return
 }
 
 var header = "ReproDiff: %s\n=====================================\n"
@@ -102,33 +71,26 @@ func writeLog(template string, vargs ...interface{}) error {
 	}
 
 	str := fmt.Sprintf(template, vargs...)
-	_, err := logFile.WriteString(str)
-	if err != nil {
-		logFile.Close()
-		logFile = nil
+	if _, err := logFile.WriteString(str); err != nil {
 		return fmt.Errorf("failed to write to log file")
 	}
 	return nil
 }
 
-func writeFsStates(workdirs []string) error {
-	for i, dir := range workdirs {
-		if err := writeLog("### %s\n", testfs[i]); err != nil {
+func writeStates(rs []*ipc.ExecResult) error {
+	// cmd := fmt.Sprintf("cd %v; ls -lR . | grep -v 'total' | awk '{print $1, $2, $3, $4, $5, $9}'", filepath.Join(dir, "0"))
+	for _, r := range rs {
+		if err := writeLog("### %s", strings.Split(r.FS, "/")[1]); err != nil {
 			return err
 		}
-		cmd := fmt.Sprintf("cd %v; ls -lR . | grep -v 'total' | awk '{print $1, $2, $3, $4, $5, $9}'", filepath.Join(dir, "0"))
-		out, err := exec.Command("bash", "-c", cmd).Output()
-		if err != nil {
-			return fmt.Errorf("failed to execute command %s: %v", cmd, err)
-		}
-		if err := writeLog("%s\n\n", out); err != nil {
+		if err := writeLog("%s\n\n", r.State); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func writeRes(p *prog.Prog, states []*ipc.ExecResult) error {
+func writeRes(p *prog.Prog, rs []*ipc.ExecResult) error {
 	if err := writeLog("## Return values:\n"); err != nil {
 		return err
 	}
@@ -137,7 +99,7 @@ func writeRes(p *prog.Prog, states []*ipc.ExecResult) error {
 		if err := writeLog("%v ", c.Meta.Name); err != nil {
 			return err
 		}
-		for _, st := range states {
+		for _, st := range rs {
 			if err := writeLog("%d(%d) ", st.Res[i], st.Errnos[i]); err != nil {
 				return err
 			}
@@ -161,29 +123,90 @@ func writeOutput(output []byte) error {
 	return nil
 }
 
+// diffState returns a description of differences between the states of two file systems.
+var diffType = [][]byte{
+	[]byte("Name"), []byte("Mode"), []byte("Uid"), []byte("Gid"), []byte("Link"), []byte("Size")}
+
+func diffState(s0 []byte, s []byte) (diff []byte) {
+	files := bytes.Split(s, []byte{'\n'})[1:]
+	files0 := bytes.Split(s0, []byte{'\n'})[1:]
+	if len(files) != len(files0) {
+		diff = append(diff, "File-Num "...)
+		return
+	}
+	for i, _ := range files {
+		fields := bytes.Fields(files[i])
+		fields0 := bytes.Fields(files0[i])
+		for j, _ := range fields {
+			if !reflect.DeepEqual(fields[j], fields0[j]) {
+				diff = append(diff, fmt.Sprintf("%s-%s ", fields[0], diffType[j])...)
+			}
+		}
+	}
+	return
+}
+
+func difference(rs []*ipc.ExecResult) []byte {
+	var diff []byte
+	for i, r := range rs {
+		fs := strings.Split(r.FS, "/")[1]
+		if i == 0 {
+			continue
+		}
+		d := diffState(rs[0].State, rs[i].State)
+		if len(d) > 0 {
+			diff = append(diff, fmt.Sprintf("%s:%s\n", fs, d)...)
+		}
+	}
+	return diff
+}
+
+func initExecutor() (*ipc.Env, *os.File, error) {
+	var flags uint64
+	flags = ipc.FlagRepro | ipc.FlagDebug
+	timeout := 3 * time.Minute
+
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
+	}
+
+	env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, 0, writePipe)
+	if err != nil {
+		writePipe.Close()
+		readPipe.Close()
+		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
+	}
+
+	return env, readPipe, nil
+}
+
 func reproduce() error {
 	var env *ipc.Env
 	var debug *os.File
 	var err error
 
 	env, debug, err = initExecutor()
-	defer env.CloseWithoutRm()
 	if err != nil {
 		return err
+	}
+	if *flagSaveDir {
+		defer env.CloseWithoutRm()
+	} else {
+		defer env.Close()
 	}
 
 	const BufSize int64 = 8 << 20
 	go func() {
-		if dbgFile == nil {
-			return
-		}
-		for {
-			_, err := io.CopyN(dbgFile, debug, BufSize)
-			if err != nil {
-				break
+		if dbgFile != nil {
+			for {
+				_, err := io.CopyN(dbgFile, debug, BufSize)
+				if err != nil {
+					break
+				}
 			}
+			dbgFile.Close()
 		}
-		dbgFile.Close()
 	}()
 
 	p, err := parseInput(*flagProg)
@@ -208,67 +231,71 @@ func reproduce() error {
 	}
 
 	// execute program
-	states, err := execute1(env, p)
-
+	rs, err := execute1(env, p)
 	if err != nil {
 		writeLog("Failed to execute program: %v\n\n", err)
 		return err
 	}
-	// Check discrepancy
-	if !ipc.CheckHash(states) {
-		writeLog("Failed to reproduce discrepancy: %v\n\n", err)
+	Logf(0, "reproduced program %s", p)
+
+	if err := writeStates(rs); err != nil {
+		return err
+	}
+	if err := writeRes(p, rs); err != nil {
+		return err
+	}
+
+	// Check for discrepancy in filesystem states and syscall return values
+	var diff_state, diff_return bool
+	diff_state = ipc.CheckHash(rs)
+	diff_return = ipc.CheckReturns(rs)
+	if !diff_state && !diff_return {
+		writeLog("\nFailed to reproduce discrepancy: %v\n\n", err)
 		return fmt.Errorf("failed to reproduce discrepancy")
 	}
 
-	Logf(0, "reproduced program %s", p)
-	var workdirs []string
-	for _, s := range states {
-		workdirs = append(workdirs, s.FS)
-	}
-	defer func() {
-		if *flagSaveDir {
-			return
-		}
-		for _, dir := range workdirs {
-			fileutil.UmountAll(dir)
-			os.RemoveAll(dir)
-		}
-	}()
-
-	// TODO: directly write states from ExecResult
-	if err := writeFsStates(workdirs); err != nil {
-		return err
-	}
-
-	if err := writeRes(p, states); err != nil {
-		return err
-	}
-
+	// Start minimization
 	if !*flagMinimize {
 		return nil
 	}
 
-	p1, _ := prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-		// TODO: system call value!
-		states, err := execute1(env, p1)
-		if err != nil {
-			// FIXME: how to compare in the existence of error/hang?
-			Logf(0, "Execution threw error: %v", err)
-			return false
-		} else {
-			cond := ipc.CheckHash(states)
-			return cond
-		}
-	}, false)
+	var p1 *prog.Prog
+	var diff []byte
+	if diff_state {
+		// Minimize the program while keeping all original discrepancies
+		// in filesystem states
+		diff = difference(rs)
+		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+			rs1, err := execute1(env, p1)
+			if err != nil {
+				// FIXME: how to compare in the existence of error/hang?
+				Logf(0, "Execution threw error: %v", err)
+				return false
+			} else {
+				return reflect.DeepEqual(diff, difference(rs1))
+			}
+		}, false)
+	} else {
+		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+			rs1, err := execute1(env, p1)
+			if err != nil {
+				// FIXME: how to compare in the existence of error/hang?
+				Logf(0, "Execution threw error: %v", err)
+				return false
+			} else {
+				return ipc.CheckReturns(rs1)
+			}
+		}, false)
+	}
 
-	// Test single-user case
+	// Try to minimize the program to single-user scenario
 	p2 := p1.Clone()
 	prog.SetUser(p2, prog.U1)
-	states, err = execute1(env, p2)
+	rs2, err := execute1(env, p2)
 	if err != nil {
 		return err
 	}
-	if ipc.CheckHash(states) {
+	if diff_state && reflect.DeepEqual(diff, difference(rs2)) || ipc.CheckReturns(rs2) {
 		p1 = p2
 	}
 
@@ -277,7 +304,6 @@ func reproduce() error {
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -298,19 +324,17 @@ func main() {
 		Fatalf("Must specify a log file for reproduction/minimization summary")
 	}
 	logFile, err = os.OpenFile(*flagLog, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	defer logFile.Close()
 	if err != nil {
-		logFile.Close()
 		Fatalf("failed to create log file: %v", err)
 	}
+	defer logFile.Close()
 
 	dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	defer dbgFile.Close()
 	if err != nil {
 		logFile.Close()
-		dbgFile.Close()
 		Fatalf("failed to create log file: %v", err)
 	}
+	defer dbgFile.Close()
 
 	if err := reproduce(); err != nil {
 		logFile.Close()

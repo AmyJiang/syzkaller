@@ -175,16 +175,7 @@ func MakeEnv(bin string, timeout time.Duration, flags uint64, pid int, debugFile
 func (env *Env) CloseWithoutRm() error {
 	for _, cmd := range env.cmds {
 		if cmd != nil {
-			if cmd.cmd != nil {
-				cmd.kill()
-				cmd.cmd.Wait()
-			}
-			if cmd.inrp != nil {
-				cmd.inrp.Close()
-			}
-			if cmd.outwp != nil {
-				cmd.outwp.Close()
-			}
+			cmd.closeWithoutRemove()
 		}
 	}
 
@@ -582,6 +573,19 @@ func (c *command) close() {
 	}
 	fileutil.UmountAll(c.dir)
 	os.RemoveAll(c.dir)
+	if c.inrp != nil {
+		c.inrp.Close()
+	}
+	if c.outwp != nil {
+		c.outwp.Close()
+	}
+}
+
+func (c *command) closeWithoutRemove() {
+	if c.cmd != nil {
+		c.kill()
+		c.cmd.Wait()
+	}
 	if c.inrp != nil {
 		c.inrp.Close()
 	}
