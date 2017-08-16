@@ -44,7 +44,7 @@ type NewInputArgs struct {
 
 type PollArgs struct {
 	Name      string
-	MaxSignal []uint32
+	MaxSignal []uint32 // new signals of the fuzzer after the previous poll
 	Stats     map[string]uint64
 }
 
@@ -55,9 +55,8 @@ type PollRes struct {
 }
 
 type NewDiffArgs struct {
-	Name          string
-	Prog          []byte
-	MinimizedProg []byte
+	Name string
+	Prog []byte
 }
 
 type HubConnectArgs struct {
