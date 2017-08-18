@@ -9,11 +9,11 @@ import (
 
 // ExecResult holds the execution results of differential testing.
 type ExecResult struct {
-	State     []byte        // filesystem state description
-	StateHash [20]byte      // SHA1 hash of the filesystem state description
-	Res       []int32       // Return values of the syscalls
-	Errnos    []int32       // Errnos of the syscalls
-	FS        string        // Working directory in the tested filesystem
+	State     []byte   // filesystem state description
+	StateHash [20]byte // SHA1 hash of the filesystem state description
+	Res       []int32  // Return values of the syscalls
+	Errnos    []int32  // Errnos of the syscalls
+	FS        string   // Working directory in the tested filesystem
 }
 
 // DiffTypes describes types of discrepancies in filesystem states

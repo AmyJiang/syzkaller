@@ -85,8 +85,8 @@ func waitForExecution(outc <-chan []byte, errc <-chan error) error {
 
 // Repro reproduces a diff-inducing program.
 func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) {
-    // Copy in the program to reproduce
-    // FIXME: copyin too slow! Can it be implemented with RPC?
+	// Copy in the program to reproduce
+	// FIXME: copyin too slow! Can it be implemented with RPC?
 	progFile := filepath.Join("/tmp", fname)
 	os.Remove(progFile)
 	if err := ioutil.WriteFile(progFile, p, 0666); err != nil {
@@ -99,7 +99,7 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 		return "", fmt.Errorf("failed to copy to VM: %v", err)
 	}
 
-    // Run the syz-reprodiff tool in VM for the program
+	// Run the syz-reprodiff tool in VM for the program
 	vmLogFile := filepath.Join("/tmp", fname+".log")
 	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -debug -min -v -1",
 		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"), vmLogFile)
@@ -112,8 +112,8 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 		return "", fmt.Errorf("failed to run syz-reprodiff: %v", err)
 	}
 
-    // Copy out the logs file to workdir/logs
-    // FIXME: make debug log optional
+	// Copy out the logs file to workdir/logs
+	// FIXME: make debug log optional
 	hostLog := filepath.Join(reproducer.logPath, fname+".log")
 	if err := reproducer.inst.MoveOut(vmLogFile, hostLog); err != nil {
 		return "", fmt.Errorf("failed to copy out log file: %v", err)

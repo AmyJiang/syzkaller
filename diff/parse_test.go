@@ -7,7 +7,6 @@ import (
 func init() {
 }
 
-
 func TestParseReproLog(t *testing.T) {
 	logs := []string{"./test.log"}
 	for _, log := range logs {

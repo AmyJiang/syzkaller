@@ -88,10 +88,9 @@ func readReturns(scanner *bufio.Scanner) ([]string, error) {
 	return returns, nil
 }
 
-
 func differenceReturns(returns []string) string {
 	for _, l := range returns {
-		ret := strings.Fields(l)[1:]  // strings.Fields(l)[1] is the syscall
+		ret := strings.Fields(l)[1:] // strings.Fields(l)[1] is the syscall
 		if !reflect.DeepEqual(ret[:len(ret)-1], ret[1:]) {
 			return l
 		}
