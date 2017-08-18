@@ -1,4 +1,4 @@
-package repro
+package diff
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 
 func init() {
 }
+
 
 func TestParseReproLog(t *testing.T) {
 	logs := []string{"./test.log"}
