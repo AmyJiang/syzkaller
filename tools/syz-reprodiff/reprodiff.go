@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/syzkaller/diff"
 	"github.com/google/syzkaller/ipc"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
-	"github.com/google/syzkaller/repro"
 )
 
 var (
@@ -29,9 +29,9 @@ var (
 	dbgFile      *os.File
 )
 
-func execute1(env *ipc.Env, prog *prog.Prog) ([]*ipc.ExecResult, error) {
-	var rs []*ipc.ExecResult
-	for _, fs := range testfs {
+func execute1(env *ipc.Env, prog *prog.Prog, targetfs []string) ([]*diff.ExecResult, error) {
+	var rs []*diff.ExecResult
+	for _, fs := range targetfs {
 		output, _, failed, hanged, err, r := env.Exec(prog, false, false, true, fs)
 		rs = append(rs, r)
 		if err != nil {
@@ -77,7 +77,7 @@ func writeLog(template string, vargs ...interface{}) error {
 	return nil
 }
 
-func writeStates(rs []*ipc.ExecResult) error {
+func writeStates(rs []*diff.ExecResult) error {
 	// cmd := fmt.Sprintf("cd %v; ls -lR . | grep -v 'total' | awk '{print $1, $2, $3, $4, $5, $9}'", filepath.Join(dir, "0"))
 	for _, r := range rs {
 		if err := writeLog("### %s", r.FS); err != nil {
@@ -90,7 +90,7 @@ func writeStates(rs []*ipc.ExecResult) error {
 	return nil
 }
 
-func writeRes(p *prog.Prog, rs []*ipc.ExecResult) error {
+func writeRes(p *prog.Prog, rs []*diff.ExecResult) error {
 	if err := writeLog("## Return values:\n"); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func reproduce() error {
 	}
 
 	// execute program
-	rs, err := execute1(env, p)
+	rs, err := execute1(env, p, testfs)
 	if err != nil {
 		writeLog("Failed to execute program: %v\n\n", err)
 		return err
@@ -209,8 +209,8 @@ func reproduce() error {
 
 	// Check for discrepancy in filesystem states and syscall return values
 	var diff_state, diff_return bool
-	diff_state = ipc.CheckHash(rs)
-	diff_return = ipc.CheckReturns(rs)
+	diff_state = diff.CheckHash(rs)
+	diff_return = diff.CheckReturns(rs)
 	if !diff_state && !diff_return {
 		return fmt.Errorf("failed to reproduce discrepancy")
 	}
@@ -221,30 +221,48 @@ func reproduce() error {
 	}
 
 	var p1 *prog.Prog
-	var diff []byte
+	var d []byte
+	var targetfs []string
+	targetfs = append(targetfs, testfs[0])
+
 	if diff_state {
 		// Minimize the program while keeping all original discrepancies
 		// in filesystem states
-		diff = repro.Difference(rs)
+		d = diff.Difference(rs)
+		for i, r := range rs {
+			if !reflect.DeepEqual(rs[0].StateHash, r.StateHash) {
+				targetfs = append(targetfs, testfs[i])
+			}
+		}
+
+		Logf(0, "%s:\t%s", p, d)
 		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-			rs1, err := execute1(env, p1)
+			rs1, err := execute1(env, p1, targetfs)
 			if err != nil {
 				// FIXME: how to compare in the existence of error/hang?
 				Logf(0, "Execution threw error: %v", err)
 				return false
 			} else {
-				return reflect.DeepEqual(diff, repro.Difference(rs1))
+				d1 := diff.Difference(rs1)
+				same := reflect.DeepEqual(d, d1)
+				Logf(1, "%s(%v):\t%s%", p1, same, d1)
+				return same
 			}
 		}, false)
 	} else {
+		for i, r := range rs {
+			if !reflect.DeepEqual(rs[0].Errnos, r.Errnos) || !reflect.DeepEqual(rs[0].Res, r.Res) {
+				targetfs = append(targetfs, testfs[i])
+			}
+		}
 		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-			rs1, err := execute1(env, p1)
+			rs1, err := execute1(env, p1, targetfs)
 			if err != nil {
 				// FIXME: how to compare in the existence of error/hang?
 				Logf(0, "Execution threw error: %v", err)
 				return false
 			} else {
-				return ipc.CheckReturns(rs1)
+				return diff.CheckReturns(rs1)
 			}
 		}, false)
 	}
@@ -252,11 +270,11 @@ func reproduce() error {
 	// Try to minimize the program to single-user scenario
 	p2 := p1.Clone()
 	prog.SetUser(p2, prog.U1)
-	rs2, err := execute1(env, p2)
+	rs2, err := execute1(env, p2, targetfs)
 	if err != nil {
 		return err
 	}
-	if diff_state && reflect.DeepEqual(diff, repro.Difference(rs2)) || ipc.CheckReturns(rs2) {
+	if diff_state && reflect.DeepEqual(d, diff.Difference(rs2)) || diff.CheckReturns(rs2) {
 		p1 = p2
 	}
 
