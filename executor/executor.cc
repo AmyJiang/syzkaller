@@ -138,9 +138,9 @@ void cover_reset(thread_t* th);
 uint64_t cover_read(thread_t* th);
 static uint32_t hash(uint32_t a);
 static bool dedup(uint32_t sig);
-uint32_t* state_write(const char* cwdbuf, uint32_t* pos);
+int state_write(const char* cwdbuf);
 int get_state(const char* name, struct stat& st, uint32_t* state);
-int scan_fs(const char* dir);
+int scan_fs(const char* dir, const char* prefix);
 int user_set(thread_t* th);
 int user_reset(thread_t* th);
 
@@ -228,17 +228,14 @@ int main(int argc, char** argv)
 	return 0;
 }
 
-uint32_t* state_write(const char* cwdbuf)
+int state_write(const char* cwdbuf)
 {
 	if (flag_collide || !flag_collect_fs_state) {
 		return 0;
 	}
 
-	uint32_t* pos = output_pos;
-	if (scan_fs(cwdbuf)) {
-		exitf("scan_fs failed");
-	}
-	return pos;
+	dbg("state_write pos: %ld\n", output_pos);
+	return scan_fs(cwdbuf, cwdbuf);
 }
 
 int get_state(const char* name, struct stat& st, uint32_t* state)
@@ -247,19 +244,19 @@ int get_state(const char* name, struct stat& st, uint32_t* state)
 	char buf[BUF_LEN];
 	memset(buf, 0, BUF_LEN);
 
-	snprintf(buf, BUF_LEN, "\n%s %lo %ld %ld",
+	snprintf(buf, BUF_LEN, "\n%s,%lo,%ld,%ld",
 		 name, (unsigned long)st.st_mode, (long)st.st_uid, (long)st.st_gid);
 
 	if (!S_ISDIR(st.st_mode)) {
-		snprintf(buf + strlen(buf), BUF_LEN, " %ld", (long)st.st_nlink);
+		snprintf(buf + strlen(buf), BUF_LEN, ",%ld", (long)st.st_nlink);
 	} else {
-		snprintf(buf + strlen(buf), BUF_LEN, " %s", "--");
+		snprintf(buf + strlen(buf), BUF_LEN, ",%s", "--");
 	}
 
 	if (S_ISREG(st.st_mode)) {
-		snprintf(buf + strlen(buf), BUF_LEN, " %lld", (long long)st.st_size);
+		snprintf(buf + strlen(buf), BUF_LEN, ",%lld", (long long)st.st_size);
 	} else {
-		snprintf(buf + strlen(buf), BUF_LEN, " %s", "--");
+		snprintf(buf + strlen(buf), BUF_LEN, ",%s", "--");
 	}
 
 	for (unsigned int i = 0; i < strlen(buf); i += 4) {
@@ -271,17 +268,20 @@ int get_state(const char* name, struct stat& st, uint32_t* state)
 	return (strlen(buf) + 3) / 4;
 }
 
-int scan_fs(const char* dir)
+int scan_fs(const char* dir, const char* prefix)
 {
 	struct dirent** namelist;
 	int n;
 	n = scandir(dir, &namelist, NULL, alphasort);
 	if (n < 0) {
-		goto exit;
+		goto err;
 	}
 
 	char fname[256];
 	uint32_t state[1000];
+	int len, l;
+	len = l = 0;
+
 	while (n--) {
 		if (strcmp(namelist[n]->d_name, ".") == 0 || strcmp(namelist[n]->d_name, "..") == 0) {
 			continue;
@@ -289,23 +289,28 @@ int scan_fs(const char* dir)
 		snprintf(fname, 255, "%s/%s", dir, namelist[n]->d_name);
 		struct stat st;
 		if (lstat(fname, &st)) {
-			goto exit;
+			goto err;
 		}
-		int size = get_state(fname, st, state);
+		int size = get_state(fname + strlen(prefix) + 1, st, state);
 		for (int i = 0; i < size; i++) {
 			write_output(state[i]);
 		}
+		len += size;
+
 		if (S_ISDIR(st.st_mode)) {
-			if (scan_fs(fname)) {
-				goto exit;
+			l = scan_fs(fname, prefix);
+			if (l == -1) {
+				goto err;
+			} else {
+				len += l;
 			}
 		}
 		free(namelist[n]);
 	}
 	free(namelist);
-	return 0;
+	return len;
 
-exit:
+err:
 	if (namelist == NULL) {
 		return -1;
 	}
@@ -363,7 +368,9 @@ void loop()
 			close(kOutPipeFd);
 			debug("execute_one() process: ruid=%d; euid=%d\n", getuid(), geteuid());
 			execute_one();
-			dbg("#--------------------------------------------------------------\n\n");
+			__atomic_store_n(&output_data[1], output_pos - output_data, __ATOMIC_RELEASE);
+			dbg("state_pos=%p, output_pos=%p\n", &output_data[1], output_pos);
+			dbg("#--------------------------------------------------------------\n");
 			debug("worker exiting\n");
 			doexit(0);
 		}
@@ -382,7 +389,7 @@ void loop()
 			int res = waitpid(-1, &status, __WALL | WNOHANG);
 			int errno0 = errno;
 			if (res == pid) {
-				debug("waitpid(%d)=%d (%d)\n", pid, res, errno0);
+				dbg("waitpid(%d)=%d (%d)\n", pid, res, errno0);
 				break;
 			}
 			usleep(1000);
@@ -402,10 +409,11 @@ void loop()
 				executed_calls = now_executed;
 				last_executed = now;
 			}
+
 			if ((now - start < 3 * 1000) && (now - last_executed < 500))
 				continue;
-			debug("waitpid(%d)=%d (%d)\n", pid, res, errno0);
-			debug("killing\n");
+			dbg("waitpid(%d)=%d (%d)\n", pid, res, errno0);
+			dbg("killing\n");
 			// TODO killing
 			kill(-pid, SIGKILL);
 			kill(pid, SIGKILL);
@@ -417,14 +425,28 @@ void loop()
 			}
 			break;
 		}
+
 		status = WEXITSTATUS(status);
+		dbg("status = %d\n", status);
 		if (status == kFailStatus)
 			fail("child failed");
 		if (status == kErrorStatus)
 			error("child errored");
 
+		if (flag_collect_fs_state) {
+			output_pos = output_data + __atomic_load_n(&output_data[1], __ATOMIC_RELAXED);
+			if (output_pos == output_data) {
+				fail("state_write failed: status=%d, ncmd=%ld\n", status, output_data[0]);
+			}
+
+			dbg("state_pos=%p, output_pos=%p\n", output_data[1], output_pos);
+			uint32_t* state_count_pos = write_output(0);
+			*state_count_pos = state_write(cwdbuf);
+			dbg("state_write after: size=%d\n", *state_count_pos);
+		}
+
 		if (!flag_repro) {
-			dbg("remove dir %s", cwdbuf);
+			dbg("remove dir %s\n", cwdbuf);
 			remove_dir(cwdbuf);
 		}
 
@@ -440,9 +462,8 @@ retry:
 	read_input(&input_pos); // flags
 	read_input(&input_pos); // pid
 	output_pos = output_data;
-	write_output(0);		       // Number of executed syscalls (updated later).
-	uint32_t* state_pos = write_output(0); // start of fs state (filled in later)
-	uint32_t* state_end = write_output(0); // end of fs state (filled in later)
+	write_output(0); // Number of executed syscalls (updated later).
+	write_output(0); // Offset of the filesystem state
 
 	if (!collide && !flag_threaded)
 		cover_enable(&threads[0]);
@@ -545,12 +566,6 @@ retry:
 			handle_completion(th);
 		}
 	}
-
-	if (flag_collect_fs_state) {
-		*state_pos = state_write(".") - output_data;
-		*state_end = output_pos - output_data;
-	}
-
 	if (flag_collide && !collide) {
 		debug("enabling collider\n");
 		collide = true;
@@ -674,10 +689,6 @@ void handle_completion(thread_t* th)
 		}
 		debug("out #%u: index=%u num=%u errno=%d sig=%u cover=%u\n",
 		      completed, th->call_index, th->call_num, reserrno, nsig, cover_size);
-
-		if (flag_repro) {
-			debug_state(".");
-		}
 
 		completed++;
 		__atomic_store_n(output_data, completed, __ATOMIC_RELEASE);
@@ -954,6 +965,7 @@ uint32_t* write_output(uint32_t v)
 		return 0;
 	if (output_pos < output_data || (char*)output_pos >= (char*)output_data + kMaxOutput)
 		fail("output overflow");
+
 	*output_pos = v;
 	return output_pos++;
 }
