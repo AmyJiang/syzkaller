@@ -6,19 +6,20 @@ package ipc
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/google/syzkaller/diff"
 	"github.com/google/syzkaller/fileutil"
 	"github.com/google/syzkaller/prog"
 )
@@ -219,47 +220,13 @@ type CallInfo struct {
 	Errno int
 }
 
-type ExecResult struct {
-	State     []byte
-	StateHash [20]byte
-	Res       []int32
-	Errnos    []int32
-	FS        string
-}
-
-// CheckHash cross-checks the hashes of file system states and returns true
-// if at least one file system is in a different state from others.
-func CheckHash(rs []*ExecResult) bool {
-	for i := 1; i < len(rs); i += 1 {
-		if !reflect.DeepEqual(rs[0].StateHash, rs[i].StateHash) {
-			return true
-		}
-	}
-	return false
-}
-
-// CheckReturns cross-checks the return values of syscalls executed in tested
-// filesystems and returns true if at least one syscall returns differently
-// in two or more file systems.
-func CheckReturns(rs []*ExecResult) bool {
-	for i := 1; i < len(rs); i += 1 {
-		if !reflect.DeepEqual(rs[0].Res, rs[i].Res) {
-			return true
-		}
-		if !reflect.DeepEqual(rs[0].Errnos, rs[i].Errnos) {
-			return true
-		}
-	}
-	return false
-}
-
 // Exec starts executor binary to execute program p and returns information about the execution:
 // output: process output
 // info: per-call info
 // failed: true if executor has detected a kernel bug
 // hanged: program hanged and was killed
 // err0: failed to start process, or executor has detected a logical error
-func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, r *ExecResult) {
+func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir string) (output []byte, info []CallInfo, failed, hanged bool, err0 error, r *diff.ExecResult) {
 
 	if p != nil {
 		// Copy-in serialized program.
@@ -304,17 +271,18 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir strin
 
 	if env.flags&FlagSignal != 0 || needFsState {
 		info, err0, r = env.readOutResult(p, needFsState)
+		if err0 != nil {
+			return
+		}
 		if needFsState {
 			r.FS = env.cmds[rootDir].dir
-		} else {
-			r = nil
 		}
 	}
 
 	return
 }
 
-func (env *Env) readOutResult(p *prog.Prog, needFsState bool) (info []CallInfo, err0 error, r *ExecResult) {
+func (env *Env) readOutResult(p *prog.Prog, needFsState bool) (info []CallInfo, err0 error, r *diff.ExecResult) {
 	out := ((*[1 << 28]uint32)(unsafe.Pointer(&env.Out[0])))[:len(env.Out)/int(unsafe.Sizeof(uint32(0)))]
 	readOut := func(v *uint32) bool {
 		if len(out) == 0 {
@@ -333,22 +301,20 @@ func (env *Env) readOutResult(p *prog.Prog, needFsState bool) (info []CallInfo, 
 		return
 	}
 
+	var stateOffset uint32
+	if !readOut(&stateOffset) {
+		err0 = fmt.Errorf("executor %v: failed to read filesystem state", env.pid)
+		return
+	}
+
 	if needFsState {
-		var statePos, stateEnd uint32
-		if !readOut(&statePos) || !readOut(&stateEnd) {
-			err0 = fmt.Errorf("executor %v: failed to read filesystem status", env.pid)
-			return
-		}
-		r = &ExecResult{
+		r = &diff.ExecResult{
 			FS:        "",
-			Res:       make([]int32, 0),
-			Errnos:    make([]int32, 0),
-			State:     make([]byte, 0),
+			Res:       []int32{},
+			Errnos:    []int32{},
+			State:     []byte{},
 			StateHash: [20]byte{},
 		}
-		r.State = append(r.State, env.Out[statePos*4:stateEnd*4]...)
-		r.StateHash = sha1.Sum(r.State)
-		out = out[:statePos]
 	}
 
 	info = make([]CallInfo, len(p.Calls))
@@ -370,8 +336,8 @@ func (env *Env) readOutResult(p *prog.Prog, needFsState bool) (info []CallInfo, 
 			return
 		}
 		if int(callIndex) >= len(info) {
-			err0 = fmt.Errorf("executor %v: failed to read output coverage: record %v, call %v, total calls %v (cov: %v)",
-				env.pid, i, callIndex, len(info), dumpCov())
+			err0 = fmt.Errorf("executor %v: failed to read output coverage: record %v, call %v (cov: %v)",
+				env.pid, i, callIndex, len(info), ncmd, dumpCov())
 			return
 		}
 		c := p.Calls[callIndex]
@@ -405,6 +371,25 @@ func (env *Env) readOutResult(p *prog.Prog, needFsState bool) (info []CallInfo, 
 		}
 		info[callIndex].Cover = out[:coverSize:coverSize]
 		out = out[coverSize:]
+	}
+
+	if needFsState {
+		var stateSize uint32
+		if !readOut(&stateSize) {
+			err0 = fmt.Errorf("executor %v: failed to read filesystem state", env.pid)
+			return
+		}
+		if stateSize > uint32(len(out)) {
+			err0 = fmt.Errorf("executor %v: failed to read filesystem state: size=%v", env.pid, stateSize)
+			return
+		}
+
+		r.State = make([]byte, stateSize*4)
+		for i, v := range out[:stateSize] {
+			binary.LittleEndian.PutUint32(r.State[i*4:], v)
+		}
+		r.StateHash = sha1.Sum(r.State)
+		out = out[stateSize:]
 	}
 
 	return
