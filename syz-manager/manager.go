@@ -25,6 +25,7 @@ import (
 	"github.com/google/syzkaller/csource"
 	"github.com/google/syzkaller/dashboard"
 	"github.com/google/syzkaller/db"
+	"github.com/google/syzkaller/diff"
 	"github.com/google/syzkaller/hash"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
@@ -146,7 +147,7 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 		vmStop:          make(chan bool),
 		uniqueDiffs:     make(map[string][]string),
 		failedDiffs:     []string{},
-		diffs:           make(chan []byte, 100),
+		diffs:           make(chan []byte, 1000),
 	}
 
 	Logf(0, "loading corpus...")
@@ -328,7 +329,7 @@ func (mgr *Manager) vmLoop() {
 	Logf(0, "booting test machines...")
 
 	// boot a test VM for reproducing discrepancies
-	diffReproducer, err := repro.CreateDiffReproducer(mgr.cfg.Count, mgr.vmStop, mgr.cfg)
+	diffReproducer, err := diff.CreateDiffReproducer(mgr.cfg.Count, mgr.vmStop, mgr.cfg)
 	if err != nil {
 		Fatalf("failed to create VM for reproducing discrepancies: %v", err)
 	}
@@ -422,10 +423,11 @@ func (mgr *Manager) vmLoop() {
 			// which we detect as "lost connection". Don't save that as crash.
 			if shutdown != nil && res.crash != nil && !mgr.isSuppressed(res.crash) {
 				mgr.saveCrash(res.crash)
-				if mgr.needRepro(res.crash.desc) {
-					Logf(1, "loop: add pending repro for '%v'", res.crash.desc)
-					pendingRepro[res.crash] = true
-				}
+                // FIXME: Disable crash reproduction for now. Need to adapt crashrepro for differential testing
+				// if mgr.needRepro(res.crash.desc) {
+				//		Logf(1, "loop: add pending repro for '%v'", res.crash.desc)
+				//		pendingRepro[res.crash] = true
+				//	}
 			}
 		case res := <-reproDone:
 			crepro := false
@@ -462,7 +464,7 @@ func (mgr *Manager) vmLoop() {
 }
 
 func (mgr *Manager) updateDiffs(logFile string) {
-	minProg, err := repro.ParseMinProg(logFile)
+	minProg, err := diff.ParseMinProg(logFile)
 	if err != nil {
 		mgr.mu.Lock()
 		mgr.failedDiffs = append(mgr.failedDiffs, filepath.Base(logFile))
@@ -481,10 +483,12 @@ func (mgr *Manager) updateDiffs(logFile string) {
 		mgr.stats["unique diffs"]++
 		Logf(0, "[NEW] diff: %s", name)
 	}
+
 	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(logFile))
 	if !prog.IsSingleUser(minProg) {
 		mgr.stats["multiuser diffs"]++
 	}
+
 	mgr.diffDB.Save(sig, minProgStr, 0)
 	if err := mgr.diffDB.Flush(); err != nil {
 		Logf(0, "failed to save minimized diff database: %v", err)
@@ -822,10 +826,10 @@ func (mgr *Manager) Check(a *CheckArgs, r *int) error {
 func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	Logf(0, "received diff from %v", a.Name)
 	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
 
 	f := mgr.fuzzers[a.Name]
 	if f == nil {
+		mgr.mu.Unlock()
 		Fatalf("fuzzer %v is not connected", a.Name)
 	}
 
@@ -837,7 +841,10 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	}
 	Logf(0, "saved new diff to %v", sig)
 
+	mgr.mu.Unlock()
+
 	mgr.diffs <- a.Prog
+
 	return nil
 }
 
@@ -878,11 +885,13 @@ func (mgr *Manager) NewInput(a *NewInputArgs, r *int) error {
 			f1.inputs = append(f1.inputs, inp)
 		}
 	}
+
 	return nil
 }
 
 func (mgr *Manager) Poll(a *PollArgs, r *PollRes) error {
 	mgr.mu.Lock()
+
 	defer mgr.mu.Unlock()
 
 	for k, v := range a.Stats {
@@ -928,6 +937,7 @@ func (mgr *Manager) Poll(a *PollArgs, r *PollRes) error {
 	}
 	Logf(2, "poll from %v: recv maxsignal=%v, send maxsignal=%v candidates=%v inputs=%v",
 		a.Name, len(a.MaxSignal), len(r.MaxSignal), len(r.Candidates), len(r.NewInputs))
+
 	return nil
 }
 
