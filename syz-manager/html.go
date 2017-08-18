@@ -20,9 +20,9 @@ import (
 	"time"
 
 	"github.com/google/syzkaller/cover"
+	"github.com/google/syzkaller/diff"
 	. "github.com/google/syzkaller/log"
 	"github.com/google/syzkaller/prog"
-	"github.com/google/syzkaller/repro"
 	"github.com/google/syzkaller/sys"
 )
 
@@ -332,18 +332,17 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 			continue
 		}
 		logFile := filepath.Join(diffdir, fname)
-		name, groups, deltas, extra, err := repro.ParseReproLog(logFile)
-
+		name, groups, diff, diffRet, err := diff.ParseReproLog(logFile)
 		if err != nil {
 			return nil, err
 		}
 
 		d := &UIDiff{
-			Log:    filepath.Join("logs", fname),
-			Name:   name,
-			Groups: groups,
-			Deltas: deltas,
-			Extra:  extra,
+			Log:     filepath.Join("logs", fname),
+			Name:    name,
+			Groups:  groups,
+			Diff:    diff,
+			DiffRet: diffRet,
 		}
 		diffs = append(diffs, d)
 	}
@@ -506,11 +505,11 @@ type UICrash struct {
 }
 
 type UIDiff struct {
-	Log    string
-	Name   string
-	Groups []int
-	Deltas []string
-	Extra  string
+	Log     string
+	Name    string
+	Groups  []int
+	Diff    string
+	DiffRet string
 }
 
 type UIDiffs struct {
@@ -812,16 +811,18 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
         {{range $fs := $.Filesystems}}
         <th>{{$fs}}</th>
         {{end}}
-        <th>Additional Info<th>
+        <th>Difference</th>
+        <th>Difference(Returns)</th>
 	</tr>
 	{{range $d := $.Diffs}}
 	<tr>
 		<td><a href="/file?name={{$d.Log}}">{{$d.Log}}</a></td>
         <td>{{$d.Name}}</td>
         {{range $i, $g := $d.Groups }}
-        <td>{{$g}}:{{index $d.Deltas $i}}</td>
+        <td>{{$g}}</td>
 		{{end}}
-        <td>{{$d.Extra}}</td>
+        <td>{{$d.Diff}}</td>
+        <td>{{$d.DiffRet}}</td>
 	</tr>
 	{{end}}
 </table>
