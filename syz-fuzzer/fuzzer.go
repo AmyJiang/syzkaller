@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/google/syzkaller/cover"
+	"github.com/google/syzkaller/diff"
 	"github.com/google/syzkaller/hash"
 	"github.com/google/syzkaller/host"
 	"github.com/google/syzkaller/ipc"
@@ -592,7 +593,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	signalMu.RLock()
 	defer signalMu.RUnlock()
 
-	if ipc.CheckHash(states) || ipc.CheckReturns(states) {
+	if diff.CheckHash(states) || diff.CheckReturns(states) {
 		reportDiff(p)
 		return info
 	}
@@ -629,7 +630,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 
 var logMu sync.Mutex
 
-func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (combinedInfo []ipc.CallInfo, states []*ipc.ExecResult) {
+func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (combinedInfo []ipc.CallInfo, states []*diff.ExecResult) {
 	// intercept execute1 to execute one program under multiple rootdirs
 	// TODO: fix the stat (= total all * #rootdirs)
 	// ChangeLog: 03/29/2017, do not add diff back to corpus
@@ -650,7 +651,7 @@ func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool,
 	return
 }
 
-func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, fs string) (info []ipc.CallInfo, state *ipc.ExecResult) {
+func execute1_internal(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool, fs string) (info []ipc.CallInfo, state *diff.ExecResult) {
 	if false {
 		// For debugging, this function must not be executed with locks held.
 		corpusMu.Lock()
