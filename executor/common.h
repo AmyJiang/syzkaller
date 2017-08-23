@@ -43,15 +43,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <iostream>
-#include <map>
-#include <openssl/sha.h>
-#include <sstream>
-#include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 const int kFailStatus = 67;
 const int kErrorStatus = 68;
 const int kRetryStatus = 69;
@@ -137,6 +128,7 @@ void debug(const char* msg, ...)
 	fflush(stdout);
 }
 
+#if defined(SYZ_EXECUTOR)
 void dbg(const char* msg, ...)
 {
 	if (!flag_debug && !flag_repro)
@@ -148,6 +140,7 @@ void dbg(const char* msg, ...)
 	va_end(args);
 	fflush(stdout);
 }
+#endif
 
 __thread int skip_segv;
 __thread jmp_buf segv_env;
@@ -468,44 +461,7 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 	}
 }
 
-void debug_state(const char* dir)
-{
-	DIR* dp;
-	struct dirent* ep;
-	dp = opendir(dir);
-	if (dp == NULL) {
-		dbg("[%s]: opendir failed\n", dir);
-		return;
-	}
-
-	while ((ep = readdir(dp))) {
-		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
-			continue;
-		char fname[256];
-		sprintf(fname, "%s/%s", dir, ep->d_name);
-		dbg("[%s]: ", fname);
-
-		struct stat st;
-		if (lstat(fname, &st))
-			dbg("lstat failed\n");
-
-		if (S_ISDIR(st.st_mode)) {
-			debug_state(fname);
-		}
-
-		dbg("%lo %ld %ld %ld ",
-		    (unsigned long)st.st_mode, (long)st.st_nlink,
-		    (long)st.st_uid, (long)st.st_gid);
-		if (S_ISREG(st.st_mode)) {
-			dbg("%lld", (long long)st.st_size);
-		}
-		dbg("\n");
-		// struct timespec &atime = st.st_atim, &mtime = st.st_mtim, &ctime = st.st_ctim;
-		// time (last status change, last file access, last file modification)
-	}
-	closedir(dp);
-}
-
+#if !defined(SYZ_MIN)
 static void setup_main_process()
 {
 	// Don't need that SIGCANCEL/SIGSETXID glibc stuff.
@@ -554,6 +510,7 @@ static void sandbox_common()
 	unshare(CLONE_NEWIPC);
 	unshare(CLONE_IO);
 }
+#endif
 
 #if defined(SYZ_EXECUTOR) || defined(SYZ_SANDBOX_NONE)
 static int do_sandbox_none(int executor_pid, bool enable_tun)

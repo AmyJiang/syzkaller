@@ -44,15 +44,6 @@ var commonHeader = `
 #include <string.h>
 #include <unistd.h>
 
-#include <iostream>
-#include <map>
-#include <openssl/sha.h>
-#include <sstream>
-#include <string>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-
 const int kFailStatus = 67;
 const int kErrorStatus = 68;
 const int kRetryStatus = 69;
@@ -121,6 +112,7 @@ void debug(const char* msg, ...)
 	fflush(stdout);
 }
 
+#if defined(SYZ_EXECUTOR)
 void dbg(const char* msg, ...)
 {
 	if (!flag_debug && !flag_repro)
@@ -132,6 +124,7 @@ void dbg(const char* msg, ...)
 	va_end(args);
 	fflush(stdout);
 }
+#endif
 
 __thread int skip_segv;
 __thread jmp_buf segv_env;
@@ -1386,90 +1379,7 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 	}
 }
 
-#if defined(SYZ_EXECUTOR)
-std::string get_state(struct stat& st)
-{
-	char buf[1000];
-	sprintf(buf, "%lo,%ld,%ld",
-		(unsigned long)st.st_mode, (long)st.st_uid, (long)st.st_gid);
-
-	if (!S_ISDIR(st.st_mode)) {
-		sprintf(buf + strlen(buf), ",%ld", (long)st.st_nlink);
-	}
-
-	if (S_ISREG(st.st_mode)) {
-		sprintf(buf + strlen(buf), ",%lld", (long long)st.st_size);
-	}
-
-	return std::string(buf);
-}
-
-void update_state(const char* dir, std::map<std::string, std::string>& state)
-{
-	DIR* dp;
-	struct dirent* ep;
-	dp = opendir(dir);
-	if (dp == NULL) {
-		dbg("update_state: opendir(%s) failed", dir);
-		return;
-	}
-	while ((ep = readdir(dp))) {
-		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
-			continue;
-
-		char fname[256];
-		sprintf(fname, "%s/%s", dir, ep->d_name);
-
-		struct stat st;
-		if (lstat(fname, &st))
-			exitf("update_state: lstat(%s) failed", fname);
-
-		state[std::string(fname)] = get_state(st);
-
-		if (S_ISDIR(st.st_mode)) {
-			update_state(fname, state);
-		}
-	}
-	closedir(dp);
-}
-#endif
-
-void debug_state(const char* dir)
-{
-	DIR* dp;
-	struct dirent* ep;
-	dp = opendir(dir);
-	if (dp == NULL) {
-		dbg("[%s]: opendir failed\n", dir);
-		return;
-	}
-
-	while ((ep = readdir(dp))) {
-		if (strcmp(ep->d_name, ".") == 0 || strcmp(ep->d_name, "..") == 0)
-			continue;
-		char fname[256];
-		sprintf(fname, "%s/%s", dir, ep->d_name);
-		dbg("[%s]: ", fname);
-
-		struct stat st;
-		if (lstat(fname, &st))
-			dbg("lstat failed\n");
-
-		if (S_ISDIR(st.st_mode)) {
-			debug_state(fname);
-		}
-
-		dbg("%lo %ld %ld %ld ",
-		    (unsigned long)st.st_mode, (long)st.st_nlink,
-		    (long)st.st_uid, (long)st.st_gid);
-		if (S_ISREG(st.st_mode)) {
-			dbg("%lld", (long long)st.st_size);
-		}
-		dbg("\n");
-	}
-	closedir(dp);
-}
-
+#if !defined(SYZ_MIN)
 static void setup_main_process()
 {
 	struct sigaction sa;
@@ -1514,6 +1424,7 @@ static void sandbox_common()
 	unshare(CLONE_NEWIPC);
 	unshare(CLONE_IO);
 }
+#endif
 
 #if defined(SYZ_EXECUTOR) || defined(SYZ_SANDBOX_NONE)
 static int do_sandbox_none(int executor_pid, bool enable_tun)
