@@ -20,7 +20,7 @@ var (
 	flagProcs    = flag.Int("procs", 4, "number of parallel processes")
 	flagSandbox  = flag.String("sandbox", "none", "sandbox to use (none, setuid, namespace)")
 	flagProg     = flag.String("prog", "", "file with program to convert (required)")
-	flagFsDebug  = flag.Bool("fsdebug", true, "debug filesystem status")
+	flagMin      = flag.Bool("min", true, "produce a minimum barebone test program")
 )
 
 func main() {
@@ -39,14 +39,26 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to deserialize the program: %v\n", err)
 		os.Exit(1)
 	}
-	opts := csource.Options{
-		Threaded: *flagThreaded,
-		Collide:  *flagCollide,
-		Repeat:   *flagRepeat,
-		Procs:    *flagProcs,
-		Sandbox:  *flagSandbox,
-		Repro:    false,
-		FsDebug:  *flagFsDebug,
+
+	var opts csource.Options
+	if *flagMin {
+		opts = csource.Options{
+			Threaded: false,
+			Collide:  false,
+			Repeat:   false,
+			Procs:    1,
+			Sandbox:  "",
+			Min:      true,
+		}
+	} else {
+		opts = csource.Options{
+			Threaded: *flagThreaded,
+			Collide:  *flagCollide,
+			Repeat:   *flagRepeat,
+			Procs:    *flagProcs,
+			Sandbox:  *flagSandbox,
+			Min:      *flagMin,
+		}
 	}
 	src, err := csource.Write(p, opts)
 	if err != nil {
@@ -58,5 +70,6 @@ func main() {
 	} else {
 		src = formatted
 	}
+
 	os.Stdout.Write(src)
 }

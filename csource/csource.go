@@ -28,7 +28,7 @@ type Options struct {
 	Procs    int
 	Sandbox  string
 	Repro    bool // generate code for use with repro package
-	FsDebug  bool
+	Min      bool // generate a minimum barebone test program
 }
 
 func Write(p *prog.Prog, opts Options) ([]byte, error) {
@@ -63,10 +63,15 @@ func Write(p *prog.Prog, opts Options) ([]byte, error) {
 	fmt.Fprint(w, hdr)
 	fmt.Fprint(w, "\n")
 
-	calls, nvar := generateCalls(exec)
+	calls, nvar := generateCalls(exec, opts.Min)
 	fmt.Fprintf(w, "long r[%v];\n", nvar)
 
-	if !opts.Repeat {
+	if opts.Min {
+		generateTestFunc(w, opts, calls, "test")
+		fmt.Fprintf(w, "int main()\n{\n")
+		fmt.Fprintf(w, "test();\n")
+		fmt.Fprintf(w, "return 0;\n}\n")
+	} else if !opts.Repeat {
 		generateTestFunc(w, opts, calls, "loop")
 
 		fmt.Fprint(w, "int main()\n{\n")
@@ -159,7 +164,7 @@ func generateTestFunc(w io.Writer, opts Options, calls []string, name string) {
 	}
 }
 
-func generateCalls(exec []byte) ([]string, int) {
+func generateCalls(exec []byte, debug bool) ([]string, int) {
 	read := func() uintptr {
 		if len(exec) < 8 {
 			panic("exec program overflow")
@@ -262,6 +267,9 @@ loop:
 				fmt.Fprintf(w, ", 0")
 			}
 			fmt.Fprintf(w, ");\n")
+			if debug {
+				fmt.Fprintf(w, "printf(\"%v()=%%ld errno=%%d\\n\", r[%v], errno);\n", meta.CallName, n)
+			}
 			lastCall = n
 			seenCall = true
 		}
@@ -272,6 +280,10 @@ loop:
 
 func preprocessCommonHeader(opts Options, handled map[string]int) (string, error) {
 	var defines []string
+	if opts.Min {
+		defines = append(defines, "SYZ_MIN")
+	}
+
 	switch opts.Sandbox {
 	case "none":
 		defines = append(defines, "SYZ_SANDBOX_NONE")
@@ -279,9 +291,11 @@ func preprocessCommonHeader(opts Options, handled map[string]int) (string, error
 		defines = append(defines, "SYZ_SANDBOX_SETUID")
 	case "namespace":
 		defines = append(defines, "SYZ_SANDBOX_NAMESPACE")
+	case "":
 	default:
 		return "", fmt.Errorf("unknown sandbox mode: %v", opts.Sandbox)
 	}
+
 	if opts.Repeat {
 		defines = append(defines, "SYZ_REPEAT")
 	}
@@ -290,9 +304,6 @@ func preprocessCommonHeader(opts Options, handled map[string]int) (string, error
 	}
 	// TODO: need to know target arch + do cross-compilation
 	defines = append(defines, "__x86_64__")
-	if opts.FsDebug {
-		defines = append(defines, "SYZ_FS_DEBUG")
-	}
 
 	cmd := exec.Command("cpp", "-nostdinc", "-undef", "-fdirectives-only", "-dDI", "-E", "-P", "-")
 	for _, def := range defines {
