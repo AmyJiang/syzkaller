@@ -283,7 +283,10 @@ func main() {
 				if len(corpus) == 0 || i%100 == 0 {
 					// Generate a new prog.
 					corpusMu.RUnlock()
-					p := prog.Generate(rnd, programLength, ct)
+					var p *prog.Prog
+					for p == nil || prog.Blacklist(p) {
+						p = prog.Generate(rnd, programLength, ct)
+					}
 					Logf(1, "generating: %s", p)
 					execute(pid, env, p, false, false, false, &statExecGen)
 				} else {
@@ -291,10 +294,10 @@ func main() {
 					p := corpus[rnd.Intn(len(corpus))].Clone()
 					corpusMu.RUnlock()
 					p.Mutate(rs, programLength, ct, corpus)
-					Logf(1, "mutating: %s", p)
-					if len(p.Calls) == 0 {
+					if len(p.Calls) == 0 || prog.Blacklist(p) {
 						continue
 					}
+					Logf(1, "mutating: %s", p)
 					execute(pid, env, p, false, false, false, &statExecFuzz)
 				}
 			}
