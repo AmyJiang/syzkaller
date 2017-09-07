@@ -1,7 +1,7 @@
 // Copyright 2015 syzkaller project authors. All rights reserved.
 // Use of this source code is governed by Apache 2 LICENSE that can be found in the LICENSE file.
 
-// +build linux
+// +build freebsd
 
 package fileutil
 
@@ -116,6 +116,6 @@ func UmountAll(dir string) {
 			UmountAll(name)
 		}
 		fn := []byte(name + "\x00")
-		syscall.Syscall(syscall.SYS_UMOUNT2, uintptr(unsafe.Pointer(&fn[0])), syscall.MNT_FORCE, 0)
+		syscall.Syscall(syscall.SYS_UNMOUNT, uintptr(unsafe.Pointer(&fn[0])), 0x80000, 0)
 	}
 }
