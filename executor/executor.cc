@@ -463,7 +463,7 @@ retry:
 	read_input(&input_pos); // pid
 	output_pos = output_data;
 	write_output(0); // Number of executed syscalls (updated later).
-	write_output(0); // Offset of the filesystem state
+	write_output(0); //
 
 	if (!collide && !flag_threaded)
 		cover_enable(&threads[0]);
@@ -477,7 +477,7 @@ retry:
 			char* addr = (char*)read_input(&input_pos);
 			uint64_t typ = read_input(&input_pos);
 			uint64_t size = read_input(&input_pos);
-			debug("copyin to %p\n", addr);
+			dbg("copyin to %p\n", addr);
 			switch (typ) {
 			case arg_const: {
 				uint64_t arg = read_input(&input_pos);
