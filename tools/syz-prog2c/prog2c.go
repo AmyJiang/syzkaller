@@ -20,7 +20,7 @@ var (
 	flagProcs    = flag.Int("procs", 4, "number of parallel processes")
 	flagSandbox  = flag.String("sandbox", "none", "sandbox to use (none, setuid, namespace)")
 	flagProg     = flag.String("prog", "", "file with program to convert (required)")
-	flagMin      = flag.Bool("min", true, "produce a minimum barebone test program")
+	flagMin      = flag.Bool("min", false, "produce a minimum barebone test program")
 )
 
 func main() {
