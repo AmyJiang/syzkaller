@@ -423,7 +423,7 @@ func (mgr *Manager) vmLoop() {
 			// which we detect as "lost connection". Don't save that as crash.
 			if shutdown != nil && res.crash != nil && !mgr.isSuppressed(res.crash) {
 				mgr.saveCrash(res.crash)
-                // FIXME: Disable crash reproduction for now. Need to adapt crashrepro for differential testing
+				// FIXME: Disable crash reproduction for now. Need to adapt crashrepro for differential testing
 				// if mgr.needRepro(res.crash.desc) {
 				//		Logf(1, "loop: add pending repro for '%v'", res.crash.desc)
 				//		pendingRepro[res.crash] = true
