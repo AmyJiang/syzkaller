@@ -16,6 +16,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"reflect"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -31,6 +32,7 @@ import (
 	"github.com/google/syzkaller/host"
 	"github.com/google/syzkaller/ipc"
 	. "github.com/google/syzkaller/log"
+	"github.com/google/syzkaller/lru"
 	"github.com/google/syzkaller/prog"
 	. "github.com/google/syzkaller/rpctype"
 	"github.com/google/syzkaller/sys"
@@ -45,10 +47,12 @@ var (
 	flagOutput   = flag.String("output", "stdout", "write programs to none/stdout/dmesg/file")
 	flagPprof    = flag.String("pprof", "", "address to serve pprof profiles")
 	flagFS       = flag.String("rootdirs", "", "colon-separated list of rootdirs")
+	flagState    = flag.Bool("state", false, "enable guidance by new states")
 )
 
 const (
 	programLength = 30
+	cacheSize     = 2 << 32
 )
 
 type Input struct {
@@ -56,6 +60,11 @@ type Input struct {
 	call      int
 	signal    []uint32
 	minimized bool
+}
+
+type InputState struct {
+	p         *prog.Prog
+	stateHash string
 }
 
 type Candidate struct {
@@ -79,6 +88,10 @@ var (
 	triage          []Input
 	triageCandidate []Input
 	candidates      []Candidate
+	triageState     []InputState
+
+	cacheMu    sync.RWMutex
+	stateCache *lru.LRU // local cache, not shared with other fuzzer instances
 
 	gate *ipc.Gate
 
@@ -86,10 +99,17 @@ var (
 	statExecFuzz      uint64
 	statExecCandidate uint64
 	statExecTriage    uint64
+	statExecTriage2   uint64
 	statExecMinimize  uint64
-	statExecDiff      uint64
+	statExecMinimize2 uint64
+
+	statIteration uint64
+	statGen       uint64
+	statFuzz      uint64
+	statTriage    uint64
 
 	statNewInput uint64
+	statNewState uint64
 	statNewDiff  uint64
 
 	allTriaged  uint32
@@ -135,6 +155,14 @@ func main() {
 	maxSignal = make(map[uint32]struct{})
 	newSignal = make(map[uint32]struct{})
 	corpusHashes = make(map[hash.Sig]struct{})
+
+	if *flagState {
+		var err error
+		stateCache, err = lru.CreateLRU(cacheSize, nil)
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	Logf(0, "dialing manager at %v", *flagManager)
 	a := &ConnectArgs{*flagName}
@@ -237,9 +265,11 @@ func main() {
 			rnd := rand.New(rs)
 
 			for i := 0; ; i++ {
+				atomic.AddUint64(&statIteration, 1)
 				triageMu.RLock()
-				if len(triageCandidate) != 0 || len(candidates) != 0 || len(triage) != 0 {
+				if len(triageCandidate) != 0 || len(candidates) != 0 || len(triage) != 0 || len(triageState) != 0 {
 					triageMu.RUnlock()
+					atomic.AddUint64(&statTriage, 1)
 					triageMu.Lock()
 					if len(triageCandidate) != 0 {
 						last := len(triageCandidate) - 1
@@ -272,6 +302,13 @@ func main() {
 						Logf(2, "triaging : %s", inp.p)
 						triageInput(pid, env, inp)
 						continue
+					} else if len(triageState) != 0 {
+						last := len(triageState) - 1
+						inp := triageState[last]
+						triageState = triageState[:last]
+						triageMu.Unlock()
+						Logf(2, "triaging by state : %s", inp.p)
+						triageInputByState(pid, env, inp)
 					} else {
 						triageMu.Unlock()
 					}
@@ -283,6 +320,7 @@ func main() {
 				if len(corpus) == 0 || i%100 == 0 {
 					// Generate a new prog.
 					corpusMu.RUnlock()
+					atomic.AddUint64(&statGen, 1)
 					var p *prog.Prog
 					for p == nil || prog.Blacklist(p) {
 						p = prog.Generate(rnd, programLength, ct)
@@ -293,6 +331,7 @@ func main() {
 					// Mutate an existing prog.
 					p := corpus[rnd.Intn(len(corpus))].Clone()
 					corpusMu.RUnlock()
+					atomic.AddUint64(&statFuzz, 1)
 					p.Mutate(rs, programLength, ct, corpus)
 					if len(p.Calls) == 0 || prog.Blacklist(p) {
 						continue
@@ -343,7 +382,16 @@ func main() {
 				a.Stats["exec total"] += atomic.SwapUint64(&env.StatExecs, 0)
 				a.Stats["executor restarts"] += atomic.SwapUint64(&env.StatRestarts, 0)
 			}
-			// TODO: Fix stats here
+			a.Stats["#Iteration"] = atomic.SwapUint64(&statIteration, 0)
+			a.Stats["#Generated"] = atomic.SwapUint64(&statGen, 0)
+			a.Stats["#Fuzzed"] = atomic.SwapUint64(&statFuzz, 0)
+			a.Stats["#Triaged"] = atomic.SwapUint64(&statTriage, 0)
+
+			a.Stats["fuzzer new inputs"] = atomic.SwapUint64(&statNewInput, 0)
+			a.Stats["fuzzer new state"] = atomic.SwapUint64(&statNewState, 0)
+			a.Stats["fuzzer new diffs"] = atomic.SwapUint64(&statNewDiff, 0)
+
+			// breakdown stats (statExecXXX is usually a multipe of the number of file systems)
 			execGen := atomic.SwapUint64(&statExecGen, 0)
 			a.Stats["exec gen"] = execGen
 			execTotal += execGen
@@ -355,13 +403,16 @@ func main() {
 			execTotal += execCandidate
 			execTriage := atomic.SwapUint64(&statExecTriage, 0)
 			a.Stats["exec triage"] = execTriage
-			//			execTotal += execTriage
+			execTotal += execTriage
+			execTriage2 := atomic.SwapUint64(&statExecTriage2, 0)
+			a.Stats["exec triage (state)"] = execTriage2
+			execTotal += execTriage + execTriage2
 			execMinimize := atomic.SwapUint64(&statExecMinimize, 0)
 			a.Stats["exec minimize"] = execMinimize
-			//			execTotal += execMinimize
-			a.Stats["fuzzer new inputs"] = atomic.SwapUint64(&statNewInput, 0)
-			a.Stats["fuzzer new diffs"] = atomic.SwapUint64(&statNewDiff, 0)
-			a.Stats["fuzzer reproduced diffs"] = atomic.SwapUint64(&statExecDiff, 0)
+			execMinimize2 := atomic.SwapUint64(&statExecMinimize2, 0)
+			a.Stats["exec minimize (state)"] = execMinimize2
+			execTotal += execMinimize + execMinimize2
+
 			r := &PollRes{}
 			if err := manager.Call("Manager.Poll", a, r); err != nil {
 				panic(err)
@@ -518,14 +569,14 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 			if len(inputCover) == 0 {
 				inputCover = append([]uint32{}, inf.Cover...)
 			} else {
-				inputCover = cover.Union(inputCover, inf.Cover)
+                // TODO. canonicalize??
+				inputCover = cover.Union(inputCover, cover.Canonicalize(inf.Cover))
 			}
 		}
 
 		inp.p, inp.call = prog.Minimize(inp.p, inp.call, func(p1 *prog.Prog, call1 int) bool {
-			// FIXME: change call to execute to execute1
-			// original: info := execute(pid, env, p1, false, false, false, &statExecMinimize)
-			info, _ := execute1(pid, env, p1, &statExecMinimize, false, true)
+			// info := execute(pid, env, p1, false, false, false, &statExecMinimize)
+			info, _ := execute1(pid, env, p1, &statExecMinimize, false, false)
 			if len(info) == 0 || len(info[call1].Signal) == 0 {
 				return false // The call was not executed.
 			}
@@ -568,6 +619,35 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 	corpusMu.Unlock()
 }
 
+func triageInputByState(pid int, env *ipc.Env, inp InputState) {
+	atomic.AddUint64(&statExecTriage2, 1)
+
+	inp.p, _ = prog.Minimize(inp.p, -1, func(p1 *prog.Prog, call1 int) bool {
+		_, states := execute1(pid, env, p1, &statExecMinimize2, false, true)
+		if len(states) == 0 || !reflect.DeepEqual(states[0].StateHash, inp.stateHash) {
+			return false // State changed
+		}
+		if diff.CheckHash(states) {
+			return false // discrepancy found
+		}
+		return true
+	}, false)
+
+	atomic.AddUint64(&statNewState, 1)
+	// FIXME: for now don't report this input to manager
+	cacheMu.Lock()
+	stateCache.Add(string(inp.stateHash[:]), nil)
+	cacheMu.Unlock()
+
+	if inp.p == nil || len(inp.p.Calls) == 0 {
+		return
+	}
+
+	corpusMu.Lock()
+	corpus = append(corpus, inp.p)
+	corpusMu.Unlock()
+}
+
 func reportDiff(p *prog.Prog) {
 	// report a new diff-inducing program
 	atomic.AddUint64(&statNewDiff, 1)
@@ -601,6 +681,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 		return info
 	}
 
+	added := false
 	for i, inf := range info {
 		if !cover.SignalNew(maxSignal, inf.Signal) {
 			continue
@@ -627,7 +708,26 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 			triage = append(triage, inp)
 		}
 		triageMu.Unlock()
+		added = true
 	}
+
+	// Triage Input by State
+	if *flagState && !added {
+		cacheMu.RLock()
+		if _, found := stateCache.Get(string(states[0].StateHash[:])); !found {
+			cacheMu.RUnlock()
+			inp := InputState{
+				p:         p.Clone(),
+				stateHash: string(states[0].StateHash[:]),
+			}
+			triageMu.Lock()
+			triageState = append(triageState, inp)
+			triageMu.Unlock()
+		} else {
+			cacheMu.RUnlock()
+		}
+	}
+
 	return info
 }
 
@@ -635,7 +735,6 @@ var logMu sync.Mutex
 
 func execute1(pid int, env *ipc.Env, p *prog.Prog, stat *uint64, needCover bool, needState bool) (combinedInfo []ipc.CallInfo, states []*diff.ExecResult) {
 	// intercept execute1 to execute one program under multiple rootdirs
-	// TODO: fix the stat (= total all * #rootdirs)
 	// ChangeLog: 03/29/2017, do not add diff back to corpus
 	//            06/13/2017, move to State struct
 	combinedInfo = make([]ipc.CallInfo, len(p.Calls))
