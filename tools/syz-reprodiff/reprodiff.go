@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/google/syzkaller/diff"
 	"github.com/google/syzkaller/ipc"
@@ -123,24 +122,36 @@ func writeOutput(output []byte) error {
 	return nil
 }
 
-func initExecutor() (*ipc.Env, *os.File, error) {
-	var flags uint64
-	flags = ipc.FlagRepro | ipc.FlagDebug
-	timeout := 3 * time.Minute
+func initExecutor() (env *ipc.Env, readPipe *os.File, err error) {
+	var writePipe *os.File
 
-	readPipe, writePipe, err := os.Pipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
+	flags, timeout, _ := ipc.DefaultFlags()
+	if flags&ipc.FlagDebug != 0 {
+		readPipe, writePipe, err = os.Pipe()
+		if err != nil {
+			err = fmt.Errorf("failed to init executor: %v", err)
+			return
+		}
+
+		dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+		if err != nil {
+			err = fmt.Errorf("failed to create log file: %v", err)
+			return
+		}
 	}
 
-	env, err := ipc.MakeEnv(*flagExecutor, timeout, flags, 0, writePipe)
+	env, err = ipc.MakeEnv(*flagExecutor, timeout, ipc.FlagRepro|flags, 0, writePipe)
 	if err != nil {
-		writePipe.Close()
-		readPipe.Close()
-		return nil, nil, fmt.Errorf("failed to init executor: %v", err)
+		if flags&ipc.FlagDebug != 0 {
+			dbgFile.Close()
+			writePipe.Close()
+			readPipe.Close()
+		}
+		err = fmt.Errorf("failed to init executor: %v", err)
+		return
 	}
 
-	return env, readPipe, nil
+	return
 }
 
 func reproduce() error {
@@ -152,6 +163,7 @@ func reproduce() error {
 	if err != nil {
 		return err
 	}
+
 	if *flagSaveDir {
 		defer env.CloseWithoutRm()
 	} else {
@@ -160,7 +172,7 @@ func reproduce() error {
 
 	const BufSize int64 = 8 << 20
 	go func() {
-		if dbgFile != nil {
+		if debug != nil && dbgFile != nil {
 			for {
 				_, err := io.CopyN(dbgFile, debug, BufSize)
 				if err != nil {
@@ -308,16 +320,8 @@ func main() {
 	}
 	defer logFile.Close()
 
-	dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		logFile.Close()
-		Fatalf("failed to create log file: %v", err)
-	}
-	defer dbgFile.Close()
-
 	if err := reproduce(); err != nil {
 		logFile.Close()
-		dbgFile.Close()
 		Fatalf("Failed to reproduce: %s", err)
 	}
 }

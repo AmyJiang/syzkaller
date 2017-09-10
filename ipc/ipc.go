@@ -64,7 +64,7 @@ var (
 	flagThreaded = flag.Bool("threaded", false, "use threaded mode in executor")
 	flagCollide  = flag.Bool("collide", false, "collide syscalls to provoke data races")
 	flagSignal   = flag.Bool("cover", true, "collect feedback signals (coverage)")
-	flagSandbox  = flag.String("sandbox", "setuid", "sandbox for fuzzing (none/setuid/namespace)")
+	flagSandbox  = flag.String("sandbox", "none", "sandbox for fuzzing (none/setuid/namespace)")
 	flagDebug    = flag.Bool("debug", false, "debug output from executor")
 	// Executor protects against most hangs, so we use quite large timeout here.
 	// Executor can be slow due to global locks in namespaces and other things,
