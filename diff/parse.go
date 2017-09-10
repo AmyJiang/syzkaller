@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/google/syzkaller/prog"
@@ -30,7 +29,6 @@ func readProg(scanner *bufio.Scanner) (*prog.Prog, error) {
 func readStates(scanner *bufio.Scanner) ([]*ExecResult, error) {
 	var rs []*ExecResult
 	var r *ExecResult
-
 	for scanner.Scan() && !strings.HasPrefix(scanner.Text(), "## ") {
 		if strings.HasPrefix(scanner.Text(), "Failed") {
 			return nil, fmt.Errorf("%s", scanner.Text())
@@ -57,45 +55,25 @@ func readStates(scanner *bufio.Scanner) ([]*ExecResult, error) {
 	return rs, nil
 }
 
-// groupStates assigns same group numbers to identical ExecResults.
-func groupStates(rs []*ExecResult) (groups []int) {
-	group_id := make(map[string]int)
-	for i, r := range rs {
-		hash := string(r.StateHash[:])
-		if i == 0 {
-			groups = append(groups, 0)
-			group_id[hash] = 0
-		} else {
-			if id, ok := group_id[hash]; ok {
-				groups = append(groups, id)
-			} else {
-				groups = append(groups, i)
-				group_id[hash] = i
-			}
-		}
-	}
-	return
-}
-
-func readReturns(scanner *bufio.Scanner) ([]string, error) {
-	var returns []string
+func readReturns(scanner *bufio.Scanner, rs []*ExecResult) error {
+	var i, rt, errno int
+	i = 0
 	for scanner.Scan() && scanner.Text() != "" {
-		returns = append(returns, scanner.Text())
-	}
-	if returns == nil {
-		return nil, fmt.Errorf("No return values")
-	}
-	return returns, nil
-}
-
-func differenceReturns(returns []string) string {
-	for _, l := range returns {
-		ret := strings.Fields(l)[1:] // strings.Fields(l)[1] is the syscall
-		if !reflect.DeepEqual(ret[:len(ret)-1], ret[1:]) {
-			return l
+		fields := strings.Fields(scanner.Text())
+		for _, f := range fields {
+			if _, err := fmt.Sscanf(f, "%d(%d)", &rt, &errno); err != nil {
+				return err
+			}
+			rs[i].Res = append(rs[i].Res, int32(rt))
+			rs[i].Errnos = append(rs[i].Errnos, int32(errno))
 		}
+		i++
+
 	}
-	return ""
+	if i != len(rs) {
+		return fmt.Errorf("Corrupted State field: len=%d", i)
+	}
+	return nil
 }
 
 // ParseMinProg extracts the minimized program from the reproducing log.
@@ -129,12 +107,11 @@ func ParseMinProg(log string) (*prog.Prog, error) {
 }
 
 // ParseReproLog parses the reproducing log of a discrepancy-inducing program.
-// name: name of the prog (e.g mmap-create-write)
-// groups: tested filesystems groups by their ExecResults
-// diff: a summary of discrepancies in the filesystems' ExecResults after running the program
-// diffRet: the first syscall that returns differently in the filesystems and its return values
-// err: error in parsing
-func ParseReproLog(log string) (name string, groups []int, diff string, diffRet string, err error) {
+// prog: test program
+// minProg: minimized equivalent program
+// rs: execution results
+// err: parsing error
+func ParseReproLog(log string, skipProg bool, skipMin bool) (prog *prog.Prog, minProg *prog.Prog, rs []*ExecResult, err error) {
 	var logFile *os.File
 	logFile, err = os.Open(log)
 	if err != nil {
@@ -142,12 +119,16 @@ func ParseReproLog(log string) (name string, groups []int, diff string, diffRet 
 	}
 	defer logFile.Close()
 
-	var rs []*ExecResult
-	var minProg *prog.Prog
-	var returns []string
-
 	scanner := bufio.NewScanner(logFile)
 	for scanner.Scan() {
+		if !skipProg {
+			if strings.HasPrefix(scanner.Text(), "## Prog") {
+				prog, err = readProg(scanner)
+				if err != nil {
+					return
+				}
+			}
+		}
 		if strings.HasPrefix(scanner.Text(), "## State") {
 			rs, err = readStates(scanner)
 			if err != nil {
@@ -155,27 +136,24 @@ func ParseReproLog(log string) (name string, groups []int, diff string, diffRet 
 			}
 		}
 		if strings.HasPrefix(scanner.Text(), "## Return") {
-			returns, err = readReturns(scanner)
+			err = readReturns(scanner, rs)
 			if err != nil {
 				return
 			}
 		}
-		if strings.HasPrefix(scanner.Text(), "## Minimized") {
-			minProg, err = readProg(scanner)
-			if err != nil {
-				return
+		if !skipMin {
+			if strings.HasPrefix(scanner.Text(), "## Minimized") {
+				minProg, err = readProg(scanner)
+				if err != nil {
+					return
+				}
+				break // MinProg is the last section
 			}
-			name = minProg.String()
-			break
 		}
 	}
 	err = scanner.Err()
 	if err != io.EOF && err != nil {
 		return
 	}
-
-	groups = groupStates(rs)
-	diff = string(Difference(rs))
-	diffRet = differenceReturns(returns)
 	return
 }

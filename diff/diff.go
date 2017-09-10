@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/google/syzkaller/prog"
 )
 
 // ExecResult holds the execution results of differential testing.
@@ -14,6 +16,10 @@ type ExecResult struct {
 	Res       []int32  // Return values of the syscalls
 	Errnos    []int32  // Errnos of the syscalls
 	FS        string   // Working directory in the tested filesystem
+}
+
+func (r ExecResult) String() string {
+	return fmt.Sprintf("{FS:%s\n  State:%s  Res:%v\n  Errnos:%v}\n", r.FS, r.State, r.Res, r.Errnos)
 }
 
 // DiffTypes describes types of discrepancies in filesystem states
@@ -73,7 +79,7 @@ func diffState(s0 []byte, s []byte) (diff []byte) {
 }
 
 // Difference returns a summary of discrepancies in filesystem ExecResults.
-func Difference(rs []*ExecResult) []byte {
+func Difference(rs []*ExecResult) string {
 	var diff []byte
 	for i, r := range rs {
 		fs := strings.Split(r.FS, "/")[1]
@@ -85,5 +91,45 @@ func Difference(rs []*ExecResult) []byte {
 			diff = append(diff, fmt.Sprintf("%s:%s\n", fs, d)...)
 		}
 	}
-	return diff
+	return string(diff)
+}
+
+func DifferenceReturns(rs []*ExecResult, prog *prog.Prog) string {
+	var fmtDiff = func(i int) string {
+		str := prog.Calls[i].Meta.Name
+		for _, r := range rs {
+			str += fmt.Sprintf(" %d(%d)", r.Res[i], r.Errnos[i])
+		}
+		return str
+	}
+
+	nsys := len(prog.Calls)
+	for i := 0; i < nsys; i++ {
+		for _, r := range rs[1:] {
+			if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
+				return fmtDiff(i)
+			}
+		}
+	}
+	return ""
+}
+
+// GroupResults assigns same group numbers to identical ExecResults.
+func GroupResults(rs []*ExecResult) (groups []int) {
+	group_id := make(map[string]int)
+	for i, r := range rs {
+		hash := string(r.StateHash[:])
+		if i == 0 {
+			groups = append(groups, 0)
+			group_id[hash] = 0
+		} else {
+			if id, ok := group_id[hash]; ok {
+				groups = append(groups, id)
+			} else {
+				groups = append(groups, i)
+				group_id[hash] = i
+			}
+		}
+	}
+	return
 }
