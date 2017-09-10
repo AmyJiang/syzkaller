@@ -332,17 +332,17 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 			continue
 		}
 		logFile := filepath.Join(diffdir, fname)
-		name, groups, diff, diffRet, err := diff.ParseReproLog(logFile)
+		prog, minProg, rs, err := diff.ParseReproLog(logFile, false, false)
 		if err != nil {
 			return nil, err
 		}
 
 		d := &UIDiff{
 			Log:     filepath.Join("logs", fname),
-			Name:    name,
-			Groups:  groups,
-			Diff:    diff,
-			DiffRet: diffRet,
+			Name:    minProg.String(),
+			Groups:  diff.GroupResults(rs),
+			Diff:    diff.Difference(rs),
+			DiffRet: diff.DifferenceReturns(rs, prog),
 		}
 		diffs = append(diffs, d)
 	}
