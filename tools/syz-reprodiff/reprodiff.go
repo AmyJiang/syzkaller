@@ -94,17 +94,15 @@ func writeRes(p *prog.Prog, rs []*diff.ExecResult) error {
 		return err
 	}
 
-	for i, c := range p.Calls {
-		if err := writeLog("%v ", c.Meta.Name); err != nil {
-			return err
-		}
-		for _, st := range rs {
-			if err := writeLog("%d(%d) ", st.Res[i], st.Errnos[i]); err != nil {
+	for _, r := range rs {
+		for i := 0; i < len(p.Calls); i++ {
+			if err := writeLog("%d(%d) ", r.Res[i], r.Errnos[i]); err != nil {
 				return err
 			}
 		}
 		writeLog("\n")
 	}
+
 	writeLog("\n")
 	return nil
 }
@@ -233,7 +231,7 @@ func reproduce() error {
 	}
 
 	var p1 *prog.Prog
-	var d []byte
+	var d string
 	var targetfs []string
 	targetfs = append(targetfs, testfs[0])
 
@@ -256,7 +254,7 @@ func reproduce() error {
 				return false
 			} else {
 				d1 := diff.Difference(rs1)
-				same := reflect.DeepEqual(d, d1)
+				same := (d1 == d)
 				Logf(1, "%s(%v):\t%s%", p1, same, d1)
 				return same
 			}
