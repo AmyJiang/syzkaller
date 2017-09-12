@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/google/syzkaller/prog"
 )
@@ -79,39 +78,29 @@ func diffState(s0 []byte, s []byte) (diff []byte) {
 }
 
 // Difference returns a summary of discrepancies in filesystem ExecResults.
-func Difference(rs []*ExecResult) string {
-	var diff []byte
-	for i, r := range rs {
-		fs := strings.Split(r.FS, "/")[1]
-		if i == 0 {
-			continue
-		}
-		d := diffState(rs[0].State, rs[i].State)
-		if len(d) > 0 {
-			diff = append(diff, fmt.Sprintf("%s:%s\n", fs, d)...)
-		}
-	}
-	return string(diff)
-}
-
-func DifferenceReturns(rs []*ExecResult, prog *prog.Prog) string {
-	var fmtDiff = func(i int) string {
-		str := prog.Calls[i].Meta.Name
-		for _, r := range rs {
-			str += fmt.Sprintf(" %d(%d)", r.Res[i], r.Errnos[i])
-		}
-		return str
-	}
-
-	nsys := len(prog.Calls)
-	for i := 0; i < nsys; i++ {
+func Difference(rs []*ExecResult, p *prog.Prog) (diff []string) {
+	call := -1
+	for i := 0; i < len(p.Calls); i++ {
 		for _, r := range rs[1:] {
 			if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
-				return fmtDiff(i)
+				call = i
+				break
 			}
 		}
 	}
-	return ""
+
+	for i, r := range rs {
+		d := ""
+		if i != 0 { // use the first testfs as oracle
+			d = string(diffState(rs[0].State, rs[i].State))
+		}
+
+		if call != -1 {
+			d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
+		}
+		diff = append(diff, d)
+	}
+	return diff
 }
 
 // GroupResults assigns same group numbers to identical ExecResults.

@@ -338,11 +338,9 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 		}
 
 		d := &UIDiff{
-			Log:     filepath.Join("logs", fname),
-			Name:    minProg.String(),
-			Groups:  diff.GroupResults(rs),
-			Diff:    diff.Difference(rs),
-			DiffRet: diff.DifferenceReturns(rs, prog),
+			Log:  filepath.Join("logs", fname),
+			Name: minProg.String(),
+			Diff: diff.Difference(rs, prog),
 		}
 		diffs = append(diffs, d)
 	}
@@ -505,11 +503,9 @@ type UICrash struct {
 }
 
 type UIDiff struct {
-	Log     string
-	Name    string
-	Groups  []int
-	Diff    string
-	DiffRet string
+	Log  string
+	Name string
+	Diff []string
 }
 
 type UIDiffs struct {
@@ -811,18 +807,14 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
         {{range $fs := $.Filesystems}}
         <th>{{$fs}}</th>
         {{end}}
-        <th>Difference</th>
-        <th>Difference(Returns)</th>
 	</tr>
 	{{range $d := $.Diffs}}
 	<tr>
 		<td><a href="/file?name={{$d.Log}}">{{$d.Log}}</a></td>
         <td>{{$d.Name}}</td>
-        {{range $i, $g := $d.Groups }}
-        <td>{{$g}}</td>
+        {{range $i, $d := $d.Diff }}
+        <td>{{$d}}</td>
 		{{end}}
-        <td>{{$d.Diff}}</td>
-        <td>{{$d.DiffRet}}</td>
 	</tr>
 	{{end}}
 </table>
