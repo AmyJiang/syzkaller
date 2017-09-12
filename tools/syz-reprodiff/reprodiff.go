@@ -231,14 +231,14 @@ func reproduce() error {
 	}
 
 	var p1 *prog.Prog
-	var d string
+	var d []string
 	var targetfs []string
 	targetfs = append(targetfs, testfs[0])
 
 	if diff_state {
 		// Minimize the program while keeping all original discrepancies
 		// in filesystem states
-		d = diff.Difference(rs)
+		d = diff.Difference(rs, p)
 		for i, r := range rs {
 			if !reflect.DeepEqual(rs[0].StateHash, r.StateHash) {
 				targetfs = append(targetfs, testfs[i])
@@ -253,8 +253,8 @@ func reproduce() error {
 				Logf(0, "Execution threw error: %v", err)
 				return false
 			} else {
-				d1 := diff.Difference(rs1)
-				same := (d1 == d)
+				d1 := diff.Difference(rs1, p1)
+				same := reflect.DeepEqual(d, d1)
 				Logf(1, "%s(%v):\t%s%", p1, same, d1)
 				return same
 			}
@@ -284,7 +284,7 @@ func reproduce() error {
 	if err != nil {
 		return err
 	}
-	if diff_state && reflect.DeepEqual(d, diff.Difference(rs2)) || diff.CheckReturns(rs2) {
+	if diff_state && reflect.DeepEqual(d, diff.Difference(rs2, p2)) || diff.CheckReturns(rs2) {
 		p1 = p2
 	}
 
