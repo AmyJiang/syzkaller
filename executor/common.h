@@ -461,7 +461,6 @@ static uintptr_t execute_syscall(int nr, uintptr_t a0, uintptr_t a1, uintptr_t a
 	}
 }
 
-#if !defined(SYZ_MIN)
 static void setup_main_process()
 {
 	// Don't need that SIGCANCEL/SIGSETXID glibc stuff.
@@ -487,6 +486,7 @@ static void setup_main_process()
 		fail("failed to chdir (tmpdir)");
 }
 
+#if !defined(SYZ_MIN)
 static void loop();
 
 static void sandbox_common()

@@ -69,6 +69,7 @@ func Write(p *prog.Prog, opts Options) ([]byte, error) {
 	if opts.Min {
 		generateTestFunc(w, opts, calls, "test")
 		fmt.Fprintf(w, "int main()\n{\n")
+		fmt.Fprintf(w, "\tsetup_main_process();\n")
 		fmt.Fprintf(w, "test();\n")
 		fmt.Fprintf(w, "return 0;\n}\n")
 	} else if !opts.Repeat {
