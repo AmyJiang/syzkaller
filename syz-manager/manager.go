@@ -527,6 +527,12 @@ func (mgr *Manager) runInstance(vmCfg *vm.Config, first bool) (*Crash, error) {
 		fuzzerV = 1 //100
 	}
 
+	// Setup test filesystems
+	fscmd := fmt.Sprintf("chmod 777 %v", strings.Join(mgr.cfg.Filesystems, " "))
+	if _, _, err := inst.Run(time.Minute, mgr.vmStop, fscmd); err != nil {
+		return nil, fmt.Errorf("failed to setup test filesystems: %v", err)
+	}
+
 	// Run the fuzzer binary.
 	start := time.Now()
 	atomic.AddUint32(&mgr.numFuzzing, 1)

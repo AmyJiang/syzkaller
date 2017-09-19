@@ -43,6 +43,12 @@ func CreateDiffReproducer(idx int, stop <-chan bool, cfg *config.Config) (*DiffR
 		return nil, fmt.Errorf("failed to copy binary: %v", err)
 	}
 
+	// Setup test filesystems
+	_, _, err = inst.Run(time.Minute, stop, fmt.Sprintf("chmod 777 %v", strings.Join(cfg.Filesystems, " ")))
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup test filesystems: %v", err)
+	}
+
 	logPath := filepath.Join(cfg.Workdir, "logs")
 	if err := os.Mkdir(logPath, 0777); err != nil && !os.IsExist(err) {
 		return nil, fmt.Errorf("failed to create logs/ in working directory: %v", err)
@@ -116,9 +122,6 @@ func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) 
 	// FIXME: make debug log optional
 	hostLog := filepath.Join(reproducer.logPath, fname+".log")
 	if err := reproducer.inst.MoveOut(vmLogFile, hostLog); err != nil {
-		return "", fmt.Errorf("failed to copy out log file: %v", err)
-	}
-	if err := reproducer.inst.MoveOut(vmLogFile+".dbg", hostLog+".dbg"); err != nil {
 		return "", fmt.Errorf("failed to copy out log file: %v", err)
 	}
 
