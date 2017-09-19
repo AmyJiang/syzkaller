@@ -147,11 +147,54 @@ func (inst *instance) Copy(hostSrc string) (string, error) {
 }
 
 func (inst *instance) CopyTo(hostSrc string, basePath string) (string, error) {
-	return "", fmt.Errorf("CopyTo operation is not implemented")
+	vmDst := filepath.Join(basePath, filepath.Base(hostSrc))
+	args := append(sshArgs(inst.sshKey, "-P", 22), hostSrc, inst.sshUser+"@"+inst.name+":"+vmDst)
+	cmd := exec.Command("scp", args...)
+	if inst.cfg.Debug {
+		Logf(0, "running command: scp %#v", args)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stdout
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	done := make(chan bool)
+	go func() {
+		select {
+		case <-time.After(3 * time.Minute):
+			cmd.Process.Kill()
+		case <-done:
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
+		return "", err
+	}
+	return vmDst, nil
 }
 
 func (inst *instance) MoveOut(vmSrc string, hostDir string) error {
-	return fmt.Errorf("MoveOut operation is not implemented")
+	args := append(sshArgs(inst.sshKey, "-P", 22), inst.sshUser+"@"+inst.name+":"+vmSrc, hostDir)
+	cmd := exec.Command("scp", args...)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan bool)
+	go func() {
+		select {
+		case <-time.After(3 * time.Minute):
+			cmd.Process.Kill()
+		case <-done:
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (inst *instance) Run(timeout time.Duration, stop <-chan bool, command string) (<-chan []byte, <-chan error, error) {
