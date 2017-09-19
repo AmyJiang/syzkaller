@@ -368,7 +368,6 @@ void loop()
 			close(kOutPipeFd);
 			debug("execute_one() process: ruid=%d; euid=%d\n", getuid(), geteuid());
 			execute_one();
-			__atomic_store_n(&output_data[1], output_pos - output_data, __ATOMIC_RELEASE);
 			dbg("state_pos=%p, output_pos=%p\n", &output_data[1], output_pos);
 			dbg("#--------------------------------------------------------------\n");
 			debug("worker exiting\n");
@@ -436,6 +435,7 @@ void loop()
 		if (flag_collect_fs_state) {
 			output_pos = output_data + __atomic_load_n(&output_data[1], __ATOMIC_RELAXED);
 			if (output_pos == output_data) {
+				// FIXME: ???
 				fail("state_write failed: status=%d, ncmd=%ld\n", status, output_data[0]);
 			}
 
@@ -692,7 +692,9 @@ void handle_completion(thread_t* th)
 
 		completed++;
 		__atomic_store_n(output_data, completed, __ATOMIC_RELEASE);
+		__atomic_store_n(&output_data[1], output_pos - output_data, __ATOMIC_RELEASE);
 	}
+
 	th->handled = true;
 	running--;
 }
