@@ -82,7 +82,8 @@ func Difference(rs []*ExecResult, p *prog.Prog) (diff []string) {
 	call := -1
 	for i := 0; i < len(p.Calls); i++ {
 		for _, r := range rs[1:] {
-			if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
+			if r.Errnos[i] != rs[0].Errnos[i] {
+				// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
 				call = i
 				break
 			}
@@ -95,7 +96,7 @@ func Difference(rs []*ExecResult, p *prog.Prog) (diff []string) {
 			d = string(diffState(rs[0].State, rs[i].State))
 		}
 
-		if call != -1 {
+		if call != -1 && r.Errnos[call] != 0 {
 			d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
 		}
 		diff = append(diff, d)
