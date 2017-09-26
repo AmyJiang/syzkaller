@@ -58,12 +58,14 @@ func CheckReturns(rs []*ExecResult) bool {
 }
 
 // diffState returns a description of differences between two filesystem states.
-func diffState(s0 []byte, s []byte) (diff []byte) {
+func diffState(s0 []byte, s []byte) []byte {
 	files := bytes.Fields(s)
 	files0 := bytes.Fields(s0)
+
+	var diff []byte
 	if len(files) != len(files0) {
 		diff = append(diff, "File-Num "...)
-		return
+		return diff
 	}
 	for i, _ := range files {
 		fields := bytes.Split(files[i], []byte{','})
@@ -74,18 +76,20 @@ func diffState(s0 []byte, s []byte) (diff []byte) {
 			}
 		}
 	}
-	return
+	return diff
 }
 
 // Difference returns a summary of discrepancies in filesystem ExecResults.
-func Difference(rs []*ExecResult, p *prog.Prog) (diff []string) {
+func Difference(rs []*ExecResult, p *prog.Prog, checkReturns bool) (diff []string) {
 	call := -1
-	for i := 0; i < len(p.Calls); i++ {
-		for _, r := range rs[1:] {
-			if r.Errnos[i] != rs[0].Errnos[i] {
-				// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
-				call = i
-				break
+	if checkReturns == true {
+		for i := 0; i < len(p.Calls); i++ {
+			for _, r := range rs[1:] {
+				if r.Errnos[i] != rs[0].Errnos[i] {
+					// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
+					call = i
+					break
+				}
 			}
 		}
 	}
@@ -99,7 +103,9 @@ func Difference(rs []*ExecResult, p *prog.Prog) (diff []string) {
 		if call != -1 && r.Errnos[call] != 0 {
 			d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
 		}
-		diff = append(diff, d)
+		if d != "" {
+			diff = append(diff, d)
+		}
 	}
 	return diff
 }

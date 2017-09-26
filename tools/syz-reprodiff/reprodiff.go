@@ -234,48 +234,29 @@ func reproduce() error {
 	var d []string
 	var targetfs []string
 	targetfs = append(targetfs, testfs[0])
-
-	if diff_state {
-		// Minimize the program while keeping all original discrepancies
-		// in filesystem states
-		d = diff.Difference(rs, p)
-		for i, r := range rs {
-			if !reflect.DeepEqual(rs[0].StateHash, r.StateHash) {
-				targetfs = append(targetfs, testfs[i])
-			}
+	// Minimize the program while keeping all original discrepancies
+	// in filesystem states
+	d = diff.Difference(rs, p, !diff_state)
+	for i, r := range rs {
+		if !reflect.DeepEqual(rs[0].StateHash, r.StateHash) {
+			targetfs = append(targetfs, testfs[i])
 		}
-
-		Logf(0, "%s:\t%s", p, d)
-		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-			rs1, err := execute1(env, p1, targetfs)
-			if err != nil {
-				// FIXME: how to compare in the existence of error/hang?
-				Logf(0, "Execution threw error: %v", err)
-				return false
-			} else {
-				d1 := diff.Difference(rs1, p1)
-				same := reflect.DeepEqual(d, d1)
-				Logf(1, "%s(%v):\t%s%", p1, same, d1)
-				return same
-			}
-		}, false)
-	} else {
-		for i, r := range rs {
-			if !reflect.DeepEqual(rs[0].Errnos, r.Errnos) || !reflect.DeepEqual(rs[0].Res, r.Res) {
-				targetfs = append(targetfs, testfs[i])
-			}
-		}
-		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-			rs1, err := execute1(env, p1, targetfs)
-			if err != nil {
-				// FIXME: how to compare in the existence of error/hang?
-				Logf(0, "Execution threw error: %v", err)
-				return false
-			} else {
-				return diff.CheckReturns(rs1)
-			}
-		}, false)
 	}
+	d = diff.Difference(rs, p, !diff_state)
+	Logf(0, "Original Difference: %s", d)
+	p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+		rs1, err := execute1(env, p1, targetfs)
+		if err != nil {
+			// FIXME: how to compare in the existence of error/hang?
+			Logf(0, "Execution threw error: %v", err)
+			return false
+		} else {
+			d1 := diff.Difference(rs1, p1, !diff_state)
+			same := reflect.DeepEqual(d, d1)
+			Logf(1, "%s(%v):\t%s", p1, same, d1)
+			return same
+		}
+	}, false)
 
 	// Try to minimize the program to single-user scenario
 	p2 := p1.Clone()
@@ -284,7 +265,7 @@ func reproduce() error {
 	if err != nil {
 		return err
 	}
-	if diff_state && reflect.DeepEqual(d, diff.Difference(rs2, p2)) || diff.CheckReturns(rs2) {
+	if reflect.DeepEqual(d, diff.Difference(rs2, p2, !diff_state)) {
 		p1 = p2
 	}
 
