@@ -101,6 +101,15 @@ func (ctx *Context) CreateInstance(name, machineType, image, sshkey string) (str
 					SourceImage: prefix + "/global/images/" + image,
 				},
 			},
+			{
+				AutoDelete: true,
+				Boot:       false,
+				Type:       "PERSISTENT",
+				InitializeParams: &compute.AttachedDiskInitializeParams{
+					DiskName:    name + "-testfs",
+					SourceImage: prefix + "/global/images/" + "syz-testfs",
+				},
+			},
 		},
 		Metadata: &compute.Metadata{
 			Items: []*compute.MetadataItems{

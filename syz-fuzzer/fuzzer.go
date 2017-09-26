@@ -569,7 +569,7 @@ func triageInput(pid int, env *ipc.Env, inp Input) {
 			if len(inputCover) == 0 {
 				inputCover = append([]uint32{}, inf.Cover...)
 			} else {
-                // TODO. canonicalize??
+				// TODO. canonicalize??
 				inputCover = cover.Union(inputCover, cover.Canonicalize(inf.Cover))
 			}
 		}

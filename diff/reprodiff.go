@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/syzkaller/config"
 	. "github.com/google/syzkaller/log"
+	"github.com/google/syzkaller/prog"
 	"github.com/google/syzkaller/vm"
 )
 
@@ -22,6 +23,14 @@ type DiffReproducer struct {
 	executorBin  string
 	stop         <-chan bool
 	logPath      string
+}
+
+type DiffRepro struct {
+	Sig     string
+	Prog    []byte
+	MinProg *prog.Prog
+	Log     string
+	Err     error
 }
 
 // CreateDiffReproducer setups a diff reproducer.
@@ -85,47 +94,56 @@ func waitForExecution(outc <-chan []byte, errc <-chan error) error {
 	case vm.TimeoutErr:
 		return err
 	default:
-		return fmt.Errorf("lost connection to diff reproducer VM")
+		return fmt.Errorf("lost connection to diff reproducer VM: %v", err)
 	}
 }
 
 // Repro reproduces a diff-inducing program.
-func (reproducer *DiffReproducer) Repro(fname string, p []byte) (string, error) {
+func (reproducer *DiffReproducer) Repro(sig string, p []byte) *DiffRepro {
 	// Copy in the program to reproduce
 	// FIXME: copyin too slow! Can it be implemented with RPC?
-	progFile := filepath.Join("/tmp", fname)
+	progFile := filepath.Join("/tmp", sig)
 	os.Remove(progFile)
 	if err := ioutil.WriteFile(progFile, p, 0666); err != nil {
-		return "", fmt.Errorf("failed to create a temp file for diff prog: %v", err)
+		return &DiffRepro{sig, p, nil, "", fmt.Errorf("failed to create a temp file for diff prog: %v", err)}
 	}
 	defer os.Remove(progFile)
 
 	vmProgFile, err := reproducer.inst.CopyTo(progFile, "/tmp")
 	if err != nil {
-		return "", fmt.Errorf("failed to copy to VM: %v", err)
+		return &DiffRepro{sig, p, nil, "", fmt.Errorf("failed to copy to VM: %v", err)}
 	}
 
 	// Run the syz-reprodiff tool in VM for the program
-	vmLogFile := filepath.Join("/tmp", fname+".log")
+	vmLogFile := filepath.Join("/tmp", sig+".log")
 	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -debug -min -v -1",
 		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"), vmLogFile)
-	Logf(0, "executing command: %v", command)
-	outc, errc, err := reproducer.inst.Run(time.Minute*30, reproducer.stop, command)
-	if err != nil {
-		return "", fmt.Errorf("failed to run syz-reprodiff: %v", err)
-	}
-	if err := waitForExecution(outc, errc); err != nil {
-		return "", fmt.Errorf("failed to run syz-reprodiff: %v", err)
+
+
+	// FIXME: retry for ssh connection EOF 
+	for try := 0; try < 3; try++ {
+		Logf(0, "executing command: %v (%v/3)", command, try)
+		if try > 0 {
+			time.Sleep(time.Second)
+		}
+		outc, errc, err := reproducer.inst.Run(time.Minute*30, reproducer.stop, command)
+		if err != nil {
+			continue
+		}
+
+		if err := waitForExecution(outc, errc); err != nil {
+			continue
+		}
+
+		hostLog := filepath.Join(reproducer.logPath, sig+".log")
+		if err := reproducer.inst.MoveOut(vmLogFile, hostLog); err != nil {
+			continue
+		}
+
+		Logf(0, "copied out log file from vm: %v", vmLogFile)
+		minProg, err := ParseMinProg(hostLog)
+		return &DiffRepro{sig, p, minProg, hostLog, err}
 	}
 
-	// Copy out the logs file to workdir/logs
-	// FIXME: make debug log optional
-	hostLog := filepath.Join(reproducer.logPath, fname+".log")
-	if err := reproducer.inst.MoveOut(vmLogFile, hostLog); err != nil {
-		return "", fmt.Errorf("failed to copy out log file: %v", err)
-	}
-
-	Logf(0, "copied out log file from vm: %v", vmLogFile)
-
-	return hostLog, nil
+	return &DiffRepro{sig, p, nil, "", fmt.Errorf("failed to run syz-reprodiff on diff vm")}
 }
