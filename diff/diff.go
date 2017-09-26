@@ -79,19 +79,23 @@ func diffState(s0 []byte, s []byte) []byte {
 	return diff
 }
 
+func firstDiffRet(p *prog.Prog, rs []*ExecResult) int {
+	for i := 0; i < len(p.Calls); i++ {
+		for _, r := range rs[1:] {
+			if r.Errnos[i] != rs[0].Errnos[i] {
+				// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 // Difference returns a summary of discrepancies in filesystem ExecResults.
 func Difference(rs []*ExecResult, p *prog.Prog, checkReturns bool) (diff []string) {
 	call := -1
 	if checkReturns == true {
-		for i := 0; i < len(p.Calls); i++ {
-			for _, r := range rs[1:] {
-				if r.Errnos[i] != rs[0].Errnos[i] {
-					// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
-					call = i
-					break
-				}
-			}
-		}
+		call = firstDiffRet(p, rs)
 	}
 
 	for i, r := range rs {

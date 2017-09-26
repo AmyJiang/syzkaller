@@ -119,8 +119,7 @@ func (reproducer *DiffReproducer) Repro(sig string, p []byte) *DiffRepro {
 	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -debug -min -v -1",
 		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"), vmLogFile)
 
-
-	// FIXME: retry for ssh connection EOF 
+	// FIXME: retry for ssh connection EOF
 	for try := 0; try < 3; try++ {
 		Logf(0, "executing command: %v (%v/3)", command, try)
 		if try > 0 {

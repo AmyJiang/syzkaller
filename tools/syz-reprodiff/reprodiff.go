@@ -232,20 +232,13 @@ func reproduce() error {
 
 	var p1 *prog.Prog
 	var d []string
-	var targetfs []string
-	targetfs = append(targetfs, testfs[0])
 	// Minimize the program while keeping all original discrepancies
 	// in filesystem states
-	d = diff.Difference(rs, p, !diff_state)
-	for i, r := range rs {
-		if !reflect.DeepEqual(rs[0].StateHash, r.StateHash) {
-			targetfs = append(targetfs, testfs[i])
-		}
-	}
+	Logf(0, "diff_state:%v diff_return:%v", diff_state, diff_return)
 	d = diff.Difference(rs, p, !diff_state)
 	Logf(0, "Original Difference: %s", d)
 	p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-		rs1, err := execute1(env, p1, targetfs)
+		rs1, err := execute1(env, p1, testfs)
 		if err != nil {
 			// FIXME: how to compare in the existence of error/hang?
 			Logf(0, "Execution threw error: %v", err)
@@ -261,7 +254,7 @@ func reproduce() error {
 	// Try to minimize the program to single-user scenario
 	p2 := p1.Clone()
 	prog.SetUser(p2, prog.U1)
-	rs2, err := execute1(env, p2, targetfs)
+	rs2, err := execute1(env, p2, testfs)
 	if err != nil {
 		return err
 	}
