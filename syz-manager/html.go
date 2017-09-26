@@ -340,7 +340,7 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 		d := &UIDiff{
 			Log:  filepath.Join("logs", fname),
 			Name: minProg.String(),
-			Diff: diff.Difference(rs, prog),
+			Diff: diff.Difference(rs, prog, true),
 		}
 		diffs = append(diffs, d)
 	}

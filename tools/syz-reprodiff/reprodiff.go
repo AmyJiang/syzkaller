@@ -238,10 +238,13 @@ func reproduce() error {
 	d = diff.Difference(rs, p, !diff_state)
 	Logf(0, "Original Difference: %s", d)
 	p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+		if len(p1.Calls) == 0 {
+			return false
+		}
 		rs1, err := execute1(env, p1, testfs)
 		if err != nil {
 			// FIXME: how to compare in the existence of error/hang?
-			Logf(0, "Execution threw error: %v", err)
+			Logf(0, "%s: execution threw error", p1)
 			return false
 		} else {
 			d1 := diff.Difference(rs1, p1, !diff_state)
