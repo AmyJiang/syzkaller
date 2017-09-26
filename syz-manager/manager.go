@@ -147,7 +147,7 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 		vmStop:          make(chan bool),
 		uniqueDiffs:     make(map[string][]string),
 		failedDiffs:     []string{},
-		diffs:           make(chan []byte, 1000),
+		diffs:           make(chan []byte, 10000),
 	}
 
 	Logf(0, "loading corpus...")
@@ -239,7 +239,7 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 
 	go func() {
 		for lastTime := time.Now(); ; {
-			time.Sleep(10 * time.Second)
+			time.Sleep(30 * time.Second)
 			now := time.Now()
 			diff := now.Sub(lastTime)
 			lastTime = now
@@ -328,15 +328,6 @@ type ReproResult struct {
 func (mgr *Manager) vmLoop() {
 	Logf(0, "booting test machines...")
 
-	// boot a test VM for reproducing discrepancies
-	diffReproducer, err := diff.CreateDiffReproducer(mgr.cfg.Count, mgr.vmStop, mgr.cfg)
-	if err != nil {
-		Fatalf("failed to create VM for reproducing discrepancies: %v", err)
-	}
-
-	// test diffReproducer
-	mgr.diffs <- []byte("# test")
-
 	reproInstances := 4
 	if reproInstances > mgr.cfg.Count {
 		reproInstances = mgr.cfg.Count
@@ -350,8 +341,49 @@ func (mgr *Manager) vmLoop() {
 	reproducing := make(map[string]bool)
 	var reproQueue []*Crash
 	reproDone := make(chan *ReproResult, 1)
+
+	unfinishedDiffs := make(map[string]bool)
+	diffDone := make(chan *diff.DiffRepro, 1000)
+
 	stopPending := false
 	shutdown := vm.Shutdown
+
+	go func() {
+		var diffReproducer *diff.DiffReproducer
+		restartDiffVM := false
+		for p := range mgr.diffs {
+			if diffReproducer == nil || restartDiffVM == true {
+				Logf(0, "diff: booting diff reproducer vm...")
+				var err error
+				if diffReproducer != nil {
+					if diffReproducer.Close() != nil {
+						Fatalf("failed to close and restart diff reproducer VM: %v", err)
+					}
+					diffReproducer = nil
+				}
+				diffReproducer, err = diff.CreateDiffReproducer(mgr.cfg.Count, mgr.vmStop, mgr.cfg)
+				if err != nil {
+					Fatalf("failed to create diff reproducer VM: %v", err)
+				}
+				restartDiffVM = false
+			}
+
+			sig := hash.String(p)
+			Logf(1, "diff: starting repro of diff %v on diff vm", sig)
+			unfinishedDiffs[sig] = true
+			res := diffReproducer.Repro(sig, p)
+			if res.Err != nil {
+				restartDiffVM = true
+				mgr.diffs <- p
+			} else {
+				diffDone <- res
+			}
+		}
+		if err := diffReproducer.Close(); err != nil {
+			Logf(0, "diff: failed to close diff reproducer VM: %v", err)
+		}
+	}()
+
 	for {
 		for crash := range pendingRepro {
 			if reproducing[crash.desc] {
@@ -366,9 +398,9 @@ func (mgr *Manager) vmLoop() {
 			reproQueue = append(reproQueue, crash)
 		}
 
-		Logf(1, "loop: shutdown=%v instances=%v/%v %+v repro: pending=%v reproducing=%v queued=%v",
+		Logf(1, "loop: shutdown=%v instances=%v/%v %+v repro: pending=%v reproducing=%v queued=%v diff: queued=%v reproducing=%v",
 			shutdown == nil, len(instances), mgr.cfg.Count, instances,
-			len(pendingRepro), len(reproducing), len(reproQueue))
+			len(pendingRepro), len(reproducing), len(reproQueue), len(mgr.diffs), len(unfinishedDiffs))
 		if shutdown == nil {
 			if len(instances) == mgr.cfg.Count {
 				return
@@ -423,11 +455,10 @@ func (mgr *Manager) vmLoop() {
 			// which we detect as "lost connection". Don't save that as crash.
 			if shutdown != nil && res.crash != nil && !mgr.isSuppressed(res.crash) {
 				mgr.saveCrash(res.crash)
-				// FIXME: Disable crash reproduction for now. Need to adapt crashrepro for differential testing
-				// if mgr.needRepro(res.crash.desc) {
-				//		Logf(1, "loop: add pending repro for '%v'", res.crash.desc)
-				//		pendingRepro[res.crash] = true
-				//	}
+				if mgr.needRepro(res.crash.desc) {
+					Logf(1, "loop: add pending repro for '%v'", res.crash.desc)
+					pendingRepro[res.crash] = true
+				}
 			}
 		case res := <-reproDone:
 			crepro := false
@@ -442,39 +473,28 @@ func (mgr *Manager) vmLoop() {
 			delete(reproducing, res.crash.desc)
 			instances = append(instances, res.instances...)
 			mgr.saveRepro(res.crash, res.res)
-		case p := <-mgr.diffs:
-			sig := hash.String(p)
-			if logFile, err := diffReproducer.Repro(sig, p); err != nil {
-				Logf(0, "reprodiff failed: %v", err)
-				//FIXME: remove
-				Fatalf("reprodiff failed")
-			} else {
-				Logf(0, "reproduced diff: %v", sig)
-				mgr.updateDiffs(logFile)
-			}
+		case res := <-diffDone:
+			Logf(1, "loop: reprodiff finished %v", res.Log)
+			delete(unfinishedDiffs, res.Sig)
+			mgr.saveDiff(res)
 		case <-shutdown:
 			Logf(1, "loop: shutting down...")
 			shutdown = nil
 			close(mgr.diffs)
-			if err := diffReproducer.Close(); err != nil {
-				Logf(0, "failed to shutdown diff reproducer: %v", err)
-			}
 		}
 	}
 }
 
-func (mgr *Manager) updateDiffs(logFile string) {
-	minProg, err := diff.ParseMinProg(logFile)
-	if err != nil {
+func (mgr *Manager) saveDiff(res *diff.DiffRepro) {
+	if res.Err != nil {
 		mgr.mu.Lock()
-		mgr.failedDiffs = append(mgr.failedDiffs, filepath.Base(logFile))
+		mgr.failedDiffs = append(mgr.failedDiffs, filepath.Base(res.Log))
 		mgr.mu.Unlock()
 		return
 	}
 
-	name := minProg.String()
-	minProgStr := minProg.Serialize()
-	sig := hash.String(minProgStr)
+	name := res.MinProg.String()
+	minProgStr := res.MinProg.Serialize()
 
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -484,12 +504,12 @@ func (mgr *Manager) updateDiffs(logFile string) {
 		Logf(0, "[NEW] diff: %s", name)
 	}
 
-	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(logFile))
-	if !prog.IsSingleUser(minProg) {
+	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(res.Log))
+	if !prog.IsSingleUser(res.MinProg) {
 		mgr.stats["multiuser diffs"]++
 	}
 
-	mgr.diffDB.Save(sig, minProgStr, 0)
+	mgr.diffDB.Save(hash.String(minProgStr), minProgStr, 0)
 	if err := mgr.diffDB.Flush(); err != nil {
 		Logf(0, "failed to save minimized diff database: %v", err)
 	}
@@ -525,6 +545,12 @@ func (mgr *Manager) runInstance(vmCfg *vm.Config, first bool) (*Crash, error) {
 	if *flagDebugFuzzer {
 		procs = 1
 		fuzzerV = 1 //100
+	}
+
+	// Setup test filesystems
+	fscmd := fmt.Sprintf("chmod 777 %v", strings.Join(mgr.cfg.Filesystems, " "))
+	if _, _, err := inst.Run(time.Minute, mgr.vmStop, fscmd); err != nil {
+		return nil, fmt.Errorf("failed to setup test filesystems: %v", err)
 	}
 
 	// Run the fuzzer binary.
