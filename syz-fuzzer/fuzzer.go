@@ -48,6 +48,7 @@ var (
 	flagPprof    = flag.String("pprof", "", "address to serve pprof profiles")
 	flagFS       = flag.String("rootdirs", "", "colon-separated list of rootdirs")
 	flagState    = flag.Bool("state", false, "enable guidance by new states")
+	flagRetvals  = flag.Bool("ret", true, "check return values for discrepancy")
 )
 
 const (
@@ -83,6 +84,9 @@ var (
 	corpusMu     sync.RWMutex
 	corpus       []*prog.Prog
 	corpusHashes map[hash.Sig]struct{}
+
+	diffMu     sync.RWMutex
+	diffHashes map[string]struct{}
 
 	triageMu        sync.RWMutex
 	triage          []Input
@@ -155,6 +159,7 @@ func main() {
 	maxSignal = make(map[uint32]struct{})
 	newSignal = make(map[uint32]struct{})
 	corpusHashes = make(map[hash.Sig]struct{})
+	diffHashes = make(map[string]struct{})
 
 	if *flagState {
 		var err error
@@ -673,14 +678,24 @@ retry:
 
 func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidate bool, stat *uint64) []ipc.CallInfo {
 	info, states := execute1(pid, env, p, stat, needCover, true)
-	signalMu.RLock()
-	defer signalMu.RUnlock()
 
-	if diff.CheckHash(states) || diff.CheckReturns(states) {
-		reportDiff(p)
+	if diff.CheckHash(states) || (*flagRetvals && diff.CheckReturns(states)) {
+		delta := strings.Join(diff.Difference(states, p, *flagRetvals),";")
+		diffMu.RLock()
+		if _, ok := diffHashes[delta]; !ok {
+			diffMu.RUnlock()
+			diffMu.Lock()
+			diffHashes[delta] = struct{}{}
+			diffMu.Unlock()
+			reportDiff(p)
+		} else {
+			diffMu.RUnlock()
+		}
 		return info
 	}
 
+	signalMu.RLock()
+	defer signalMu.RUnlock()
 	added := false
 	for i, inf := range info {
 		if !cover.SignalNew(maxSignal, inf.Signal) {
