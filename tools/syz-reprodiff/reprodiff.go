@@ -18,14 +18,15 @@ import (
 
 var (
 	flagTestfs   = flag.String("testfs", "./", "a colon-separated list of test filesystems")
-	flagLog      = flag.String("log", "repro.log", "summary of reproduction and(or) minimization")
+	flagDbgFile  = flag.String("dbg", "debug.log", "")
 	flagExecutor = flag.String("executor", "./syz-executor", "path to executor binary")
 	flagProg     = flag.String("prog", "", "diff-inducing program to reproduce")
+	flagProgDir  = flag.String("dir", "", "directory of programs to reproduce")
 	flagMinimize = flag.Bool("min", false, "minimize input program")
 	flagSaveDir  = flag.Bool("save", false, "save working directory")
 	testfs       []string
-	logFile      *os.File
 	dbgFile      *os.File
+	logFile      *os.File
 )
 
 func execute1(env *ipc.Env, prog *prog.Prog, targetfs []string) ([]*diff.ExecResult, error) {
@@ -34,12 +35,12 @@ func execute1(env *ipc.Env, prog *prog.Prog, targetfs []string) ([]*diff.ExecRes
 		output, _, failed, hanged, err, r := env.Exec(prog, false, false, true, fs)
 		rs = append(rs, r)
 		if err != nil {
-			Logf(0, "ERR: executor threw error: %s", err)
-			return nil, err
+			Logf(0, "ERR: executor threw error")
+			return nil, fmt.Errorf("executor throw error:%s", err)
 		}
 		if failed {
-			Logf(0, "BUG: executor-detected bug:\n%s", output)
-			return nil, fmt.Errorf("executor-detected failure")
+			Logf(0, "BUG: executor-detected bug")
+			return nil, fmt.Errorf("executor-detected failure:%s", output)
 		}
 		if hanged {
 			Logf(0, "HANG: executor hanged")
@@ -48,18 +49,6 @@ func execute1(env *ipc.Env, prog *prog.Prog, targetfs []string) ([]*diff.ExecRes
 	}
 
 	return rs, nil
-}
-
-func parseInput(inputFile string) (p *prog.Prog, err error) {
-	data, err := ioutil.ReadFile(*flagProg)
-	if err != nil {
-		return
-	}
-	p, err = prog.Deserialize(data)
-	if err != nil {
-		return
-	}
-	return
 }
 
 var header = "ReproDiff: %s\n=====================================\n"
@@ -90,13 +79,21 @@ func writeStates(rs []*diff.ExecResult) error {
 }
 
 func writeRes(p *prog.Prog, rs []*diff.ExecResult) error {
-	if err := writeLog("## Return values:\n"); err != nil {
+	var err error
+	err = writeLog("## Return values:\n")
+	if err != nil {
 		return err
 	}
 
 	for _, r := range rs {
 		for i := 0; i < len(p.Calls); i++ {
-			if err := writeLog("%d(%d) ", r.Res[i], r.Errnos[i]); err != nil {
+			if len(r.Res) <= i || len(r.Errnos) <= i {
+				err = writeLog("nil(nil) ")
+			} else {
+				err = writeLog("%d(%d) ", r.Res[i], r.Errnos[i])
+			}
+
+			if err != nil {
 				return err
 			}
 		}
@@ -131,7 +128,7 @@ func initExecutor() (env *ipc.Env, readPipe *os.File, err error) {
 			return
 		}
 
-		dbgFile, err = os.OpenFile(*flagLog+".dbg", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+		dbgFile, err = os.OpenFile(*flagDbgFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 		if err != nil {
 			err = fmt.Errorf("failed to create log file: %v", err)
 			return
@@ -149,6 +146,18 @@ func initExecutor() (env *ipc.Env, readPipe *os.File, err error) {
 		return
 	}
 
+	return
+}
+
+func parseInput(input string) (p *prog.Prog, err error) {
+	data, err := ioutil.ReadFile(input)
+	if err != nil {
+		return
+	}
+	p, err = prog.Deserialize(data)
+	if err != nil {
+		return
+	}
 	return
 }
 
@@ -181,104 +190,129 @@ func reproduce() error {
 		}
 	}()
 
-	p, err := parseInput(*flagProg)
-	if err != nil {
-		return err
-	}
-
-	if p == nil || len(p.Calls) == 0 {
-		Logf(0, "received test program")
-		if err := writeLog(header, "Test VM Passed"); err != nil {
+	var inputs []string
+	if *flagProgDir != "" {
+		files, err := ioutil.ReadDir(*flagProgDir)
+		if err != nil {
 			return err
 		}
-		return nil
-	}
-
-	Logf(0, "received program to reproduce: %s", p)
-	if err := writeLog(header, filepath.Base(*flagProg)); err != nil {
-		return err
-	}
-	if err := writeLog("## Prog: %s\n%s\n\n## State:\n", p, p.Serialize()); err != nil {
-		return err
-	}
-
-	// execute program
-	rs, err := execute1(env, p, testfs)
-	if err != nil {
-		writeLog("Failed to execute program: %v\n\n", err)
-		return err
-	}
-	Logf(0, "reproduced program %s", p)
-
-	if err := writeStates(rs); err != nil {
-		return err
-	}
-	if err := writeRes(p, rs); err != nil {
-		return err
-	}
-
-	// Check for discrepancy in filesystem states and syscall return values
-	var diff_state, diff_return bool
-	diff_state = diff.CheckHash(rs)
-	diff_return = diff.CheckReturns(rs)
-	if !diff_state && !diff_return {
-		return fmt.Errorf("failed to reproduce discrepancy")
-	}
-
-	// Start minimization
-	if !*flagMinimize {
-		return nil
-	}
-
-	var p1 *prog.Prog
-	var d []string
-	// Minimize the program while keeping all original discrepancies
-	// in filesystem states
-	Logf(0, "diff_state:%v diff_return:%v", diff_state, diff_return)
-	d = diff.Difference(rs, p, !diff_state)
-	Logf(0, "Original Difference: %s", d)
-	p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
-		if len(p1.Calls) == 0 {
-			return false
+		for _, file := range files {
+			if strings.HasSuffix(file.Name(), ".log") || file.Name() == "." || file.Name() == ".." {
+				continue
+			}
+			inputs = append(inputs, filepath.Join(*flagProgDir, file.Name()))
 		}
-		rs1, err := execute1(env, p1, testfs)
+	} else {
+		inputs = append(inputs, *flagProg)
+	}
+
+	for _, file := range inputs {
+		var p *prog.Prog
+		Logf(0, "Prog: %s", file)
+		p, err = parseInput(file)
 		if err != nil {
-			// FIXME: how to compare in the existence of error/hang?
-			Logf(0, "%s: execution threw error", p1)
-			return false
-		} else {
-			d1 := diff.Difference(rs1, p1, !diff_state)
-			same := reflect.DeepEqual(d, d1)
-			Logf(1, "%s(%v):\t%s", p1, same, d1)
-			return same
+			return err
 		}
-	}, false)
+		logFile, err = os.OpenFile(file+".log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+		if err != nil {
+			return fmt.Errorf("failed to create log file: %v", err)
+		}
+		defer logFile.Close()
 
-	// Try to minimize the program to single-user scenario
-	p2 := p1.Clone()
-	prog.SetUser(p2, prog.U1)
-	rs2, err := execute1(env, p2, testfs)
-	if err != nil {
-		return err
-	}
-	if reflect.DeepEqual(d, diff.Difference(rs2, p2, !diff_state)) {
-		p1 = p2
+		if p == nil || len(p.Calls) == 0 {
+			Logf(0, "received test program")
+			if err := writeLog(header, "Test VM Passed"); err != nil {
+				return err
+			}
+		}
+
+		Logf(0, "received program to reproduce: %s", p)
+		if err := writeLog(header, filepath.Base(file)); err != nil {
+			return err
+		}
+		if err := writeLog("## Prog: %s\n%s\n\n## State:\n", p, p.Serialize()); err != nil {
+			return err
+		}
+
+		// execute program
+		rs, err := execute1(env, p, testfs)
+		if err != nil {
+			writeLog("Failed to execute program: %v\n\n", err)
+			return err
+		}
+		Logf(0, "reproduced program %s", p)
+
+		if err := writeStates(rs); err != nil {
+			return err
+		}
+		if err := writeRes(p, rs); err != nil {
+			return err
+		}
+
+		// Check for discrepancy in filesystem states and syscall return values
+		var diff_state, diff_return bool
+		diff_state = diff.CheckHash(rs)
+		diff_return = diff.CheckReturns(rs)
+		if !diff_state && !diff_return {
+			writeLog("## Failed to reproduce discrepancy\n")
+			Logf(0, "failed to reproduce discrepancy")
+			continue
+		}
+
+		// Start minimization
+		if !*flagMinimize {
+			continue
+		}
+
+		var p1 *prog.Prog
+		var d []string
+		// Minimize the program while keeping all original discrepancies
+		// in filesystem states
+		Logf(0, "diff_state:%v diff_return:%v", diff_state, diff_return)
+		d = diff.Difference(rs, p, !diff_state)
+		Logf(0, "Original Difference: %s", d)
+		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
+			if len(p1.Calls) == 0 {
+				return false
+			}
+			rs1, err := execute1(env, p1, testfs)
+			if err != nil {
+				// FIXME: how to compare in the existence of error/hang?
+				Logf(0, "%s: execution threw error", p1)
+				return false
+			} else {
+				d1 := diff.Difference(rs1, p1, !diff_state)
+				same := reflect.DeepEqual(d, d1)
+				Logf(1, "%s(%v):\t%s", p1, same, d1)
+				return same
+			}
+		}, false)
+
+		// Try to minimize the program to single-user scenario
+		p2 := p1.Clone()
+		prog.SetUser(p2, prog.U1)
+		rs2, err := execute1(env, p2, testfs)
+		if err != nil {
+			return err
+		}
+		if reflect.DeepEqual(d, diff.Difference(rs2, p2, !diff_state)) {
+			p1 = p2
+		}
+
+		Logf(0, "minimized prog to %s", p1)
+		err = writeLog("## Minimized Prog: %s\n%s\n\n", p1, p1.Serialize())
+		if err != nil {
+			return err
+		}
 	}
 
-	Logf(0, "minimized prog to %s", p1)
-	err = writeLog("## Minimized Prog: %s\n%s\n\n", p1, p1.Serialize())
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
 func main() {
-	var err error
-
 	flag.Parse()
-	if *flagProg == "" {
-		Fatalf("Must specify a diff-inducing program to reproduce")
+	if *flagProg == "" && *flagProgDir == "" {
+		Fatalf("Must specify diff-inducing program(s) to reproduce")
 	}
 
 	testfs = strings.Split(*flagTestfs, ":")
@@ -286,17 +320,7 @@ func main() {
 		Fatalf("Must specify two or more test filesystems")
 	}
 
-	if *flagLog == "" {
-		Fatalf("Must specify a log file for reproduction/minimization summary")
-	}
-	logFile, err = os.OpenFile(*flagLog, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
-	if err != nil {
-		Fatalf("failed to create log file: %v", err)
-	}
-	defer logFile.Close()
-
 	if err := reproduce(); err != nil {
-		logFile.Close()
 		Fatalf("Failed to reproduce: %s", err)
 	}
 }

@@ -115,9 +115,9 @@ func (reproducer *DiffReproducer) Repro(sig string, p []byte) *DiffRepro {
 	}
 
 	// Run the syz-reprodiff tool in VM for the program
-	vmLogFile := filepath.Join("/tmp", sig+".log")
-	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -log=%v -debug -min -v -1",
-		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"), vmLogFile)
+	vmLogFile := vmProgFile + ".log"
+	command := fmt.Sprintf("%v -executor=%v -prog=%v -testfs=%v -min -v -1",
+		reproducer.reprodiffBin, reproducer.executorBin, vmProgFile, strings.Join(reproducer.cfg.Filesystems, ":"))
 
 	// FIXME: retry for ssh connection EOF
 	for try := 0; try < 3; try++ {
@@ -131,6 +131,7 @@ func (reproducer *DiffReproducer) Repro(sig string, p []byte) *DiffRepro {
 		}
 
 		if err := waitForExecution(outc, errc); err != nil {
+			Logf(0, "error=%s", err)
 			continue
 		}
 
