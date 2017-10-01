@@ -38,6 +38,14 @@ repro:
 reprodiff:
 	go build -o ./bin/syz-reprodiff github.com/google/syzkaller/tools/syz-reprodiff
 
+reprodiff-freebsd:
+	GOOS=freebsd GOARCH=amd64 go build -o ./bin/syz-reprodiff-freebsd github.com/google/syzkaller/tools/syz-reprodiff
+
+difflog:
+	go build -o ./bin/syz-difflog github.com/google/syzkaller/tools/syz-difflog
+
+
+
 mutate:
 	go build -o ./bin/syz-mutate github.com/google/syzkaller/tools/syz-mutate
 
