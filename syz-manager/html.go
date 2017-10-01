@@ -326,9 +326,10 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 	var diffs []*UIDiff
 	for _, fname := range dirs {
 		if fname == "e1d57665c76144e7bb6a1436c4be9213d2610534.log" {
+			// Test file
 			continue
 		}
-		if strings.HasSuffix(fname, ".dbg") {
+		if !strings.HasSuffix(fname, ".log") {
 			continue
 		}
 		logFile := filepath.Join(diffdir, fname)
@@ -338,9 +339,9 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 		}
 
 		d := &UIDiff{
-			Log:  filepath.Join("logs", fname),
-			Name: minProg.String(),
-			Diff: diff.Difference(rs, prog, true),
+			Log:    filepath.Join("logs", fname),
+			Name:   minProg.String(),
+			Deltas: diff.Difference(rs, prog, diff.DiffTypes, true),
 		}
 		diffs = append(diffs, d)
 	}
@@ -503,9 +504,9 @@ type UICrash struct {
 }
 
 type UIDiff struct {
-	Log  string
-	Name string
-	Diff []string
+	Log    string
+	Name   string
+	Deltas map[string]string
 }
 
 type UIDiffs struct {
@@ -812,8 +813,8 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
 	<tr>
 		<td><a href="/file?name={{$d.Log}}">{{$d.Log}}</a></td>
         <td>{{$d.Name}}</td>
-        {{range $i, $d := $d.Diff }}
-        <td>{{$d}}</td>
+        {{range $fs := $.Filesystems}}
+        <td>{{index $d.Deltas $fs}}</td>
 		{{end}}
 	</tr>
 	{{end}}

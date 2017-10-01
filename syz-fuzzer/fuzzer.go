@@ -680,7 +680,8 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	info, states := execute1(pid, env, p, stat, needCover, true)
 
 	if diff.CheckHash(states) || (*flagRetvals && diff.CheckReturns(states)) {
-		delta := strings.Join(diff.Difference(states, p, *flagRetvals),";")
+		// TODO: fix
+		delta := diff.Hash(diff.Difference(states, p, diff.DiffTypes, *flagRetvals))
 		diffMu.RLock()
 		if _, ok := diffHashes[delta]; !ok {
 			diffMu.RUnlock()

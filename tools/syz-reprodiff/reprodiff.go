@@ -265,11 +265,11 @@ func reproduce() error {
 		}
 
 		var p1 *prog.Prog
-		var d []string
+		var d map[string]string
 		// Minimize the program while keeping all original discrepancies
 		// in filesystem states
 		Logf(0, "diff_state:%v diff_return:%v", diff_state, diff_return)
-		d = diff.Difference(rs, p, !diff_state)
+		d = diff.Difference(rs, p, diff.DiffTypes, !diff_state)
 		Logf(0, "Original Difference: %s", d)
 		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
 			if len(p1.Calls) == 0 {
@@ -281,7 +281,8 @@ func reproduce() error {
 				Logf(0, "%s: execution threw error", p1)
 				return false
 			} else {
-				d1 := diff.Difference(rs1, p1, !diff_state)
+				// a bug?
+				d1 := diff.Difference(rs1, p1, diff.DiffTypes, !diff_state)
 				same := reflect.DeepEqual(d, d1)
 				Logf(1, "%s(%v):\t%s", p1, same, d1)
 				return same
@@ -295,7 +296,7 @@ func reproduce() error {
 		if err != nil {
 			return err
 		}
-		if reflect.DeepEqual(d, diff.Difference(rs2, p2, !diff_state)) {
+		if reflect.DeepEqual(d, diff.Difference(rs2, p2, diff.DiffTypes, !diff_state)) {
 			p1 = p2
 		}
 

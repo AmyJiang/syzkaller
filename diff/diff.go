@@ -4,32 +4,26 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sort"
 
 	"github.com/google/syzkaller/prog"
 )
 
-// ExecResult holds the execution results of differential testing.
+// ExecResult holds the execution result of one test fs
 type ExecResult struct {
 	State     []byte   // filesystem state description
-	StateHash [20]byte // SHA1 hash of the filesystem state description
+	StateHash [20]byte // SHA1 hash of state description
 	Res       []int32  // Return values of the syscalls
 	Errnos    []int32  // Errnos of the syscalls
-	FS        string   // Working directory in the tested filesystem
+	FS        string   // testfs
 }
 
 func (r ExecResult) String() string {
 	return fmt.Sprintf("{FS:%s\n  State:%s  Res:%v\n  Errnos:%v}\n", r.FS, r.State, r.Res, r.Errnos)
 }
 
-// DiffTypes describes types of discrepancies in filesystem states
-var DiffTypes = [][]byte{
-	[]byte("Name"),
-	[]byte("Mode"),
-	[]byte("Uid"),
-	[]byte("Gid"),
-	[]byte("Link"),
-	[]byte("Size"),
-}
+// DiffTypes describes the components of the state
+var DiffTypes = []string{"Name", "Mode", "Uid", "Gid", "Link", "Size"}
 
 // CheckHash cross-checks the hashes of file system states and returns true
 // if at least one file system is in a different state from others.
@@ -57,22 +51,36 @@ func CheckReturns(rs []*ExecResult) bool {
 	return false
 }
 
-// diffState returns a description of differences between two filesystem states.
-func diffState(s0 []byte, s []byte) []byte {
-	files := bytes.Fields(s)
-	files0 := bytes.Fields(s0)
+func parseState(s []byte) [](map[string]string) {
+	var state [](map[string]string)
+	lines := bytes.Fields(s)
+	for _, s := range lines {
+		s = bytes.Trim(s, "\x00")
+		fields := bytes.Split(s, []byte{','})
+		stat := make(map[string]string)
+		for i, f := range fields {
+			stat[DiffTypes[i]] = string(f)
+		}
+		state = append(state, stat)
+	}
+	return state
+}
 
-	var diff []byte
-	if len(files) != len(files0) {
-		diff = append(diff, "File-Num "...)
+// diffState returns a description of differences between two filesystem states.
+// diffFields msut be a subset of DiffTypes
+func diffState(s0 []byte, s1 []byte, diffFields []string) string {
+	s0_parsed := parseState(s0)
+	s1_parsed := parseState(s1)
+
+	diff := ""
+	if len(s0_parsed) != len(s1_parsed) {
+		diff = diff + "File-Num "
 		return diff
 	}
-	for i, _ := range files {
-		fields := bytes.Split(files[i], []byte{','})
-		fields0 := bytes.Split(files0[i], []byte{','})
-		for j, _ := range fields {
-			if !reflect.DeepEqual(fields[j], fields0[j]) {
-				diff = append(diff, fmt.Sprintf("%s-%s ", fields[0], DiffTypes[j])...)
+	for i, _ := range s0_parsed {
+		for _, k := range diffFields {
+			if s0_parsed[i][k] != s1_parsed[i][k] {
+				diff = diff + fmt.Sprintf("%s-%s ", s0_parsed[i]["Name"], k)
 			}
 		}
 	}
@@ -80,8 +88,11 @@ func diffState(s0 []byte, s []byte) []byte {
 }
 
 func firstDiffRet(p *prog.Prog, rs []*ExecResult) int {
-	for i := 0; i < len(p.Calls); i++ {
+	for i := 0; i < len(rs[0].Res); i++ {
 		for _, r := range rs[1:] {
+			if len(r.Res) <= i || len(r.Errnos) <= i {
+				return i
+			}
 			//			if r.Errnos[i] != rs[0].Errnos[i] {
 			if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
 				return i
@@ -91,27 +102,63 @@ func firstDiffRet(p *prog.Prog, rs []*ExecResult) int {
 	return -1
 }
 
+func Hash(delta map[string]string) string {
+	var keys []string
+	for k := range delta {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	d := ""
+	for _, k := range keys {
+		d += k + ":" + delta[k] + "\n"
+	}
+	return d
+}
+
 // Difference returns a summary of discrepancies in filesystem ExecResults.
-func Difference(rs []*ExecResult, p *prog.Prog, checkReturns bool) (diff []string) {
+func Difference(rs []*ExecResult, p *prog.Prog, diffFields []string, checkReturns bool) map[string]string {
+	delta := make(map[string]string)
 	call := -1
 	if checkReturns == true {
 		call = firstDiffRet(p, rs)
 	}
 
+	ref := 0
+	for i, r := range rs {
+		if r.FS == "/testfs1" {
+			// TODO: possible not to hard-code?
+			ref = i
+			break
+		}
+	}
+
 	for i, r := range rs {
 		d := ""
-		if i != 0 { // use the first testfs as oracle
-			d = string(diffState(rs[0].State, rs[i].State))
+		if i != ref { // use rs[ref] as oracle
+			d = diffState(rs[ref].State, rs[i].State, diffFields)
 		}
 
 		if call != -1 {
-			d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
+			if len(r.Res) > call && len(r.Errnos) > call {
+				d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
+			} else {
+				d += fmt.Sprintf("\n%s()=nil(nil)", p.Calls[call].Meta.Name)
+			}
 		}
-		if d != "" {
-			diff = append(diff, d)
+		delta[r.FS] = d
+	}
+	return delta
+}
+
+func HasDifference(delta map[string]string) bool {
+	for k := range delta {
+		if delta[k] != "" {
+			return true
 		}
 	}
-	return diff
+	return false
 }
 
 // GroupResults assigns same group numbers to identical ExecResults.

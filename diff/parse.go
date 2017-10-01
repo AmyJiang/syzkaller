@@ -61,11 +61,13 @@ func readReturns(scanner *bufio.Scanner, rs []*ExecResult) error {
 	for scanner.Scan() && scanner.Text() != "" {
 		fields := strings.Fields(scanner.Text())
 		for _, f := range fields {
-			if _, err := fmt.Sscanf(f, "%d(%d)", &rt, &errno); err != nil {
-				return err
+			if _, err := fmt.Sscanf(f, "%d(%d)", &rt, &errno); err == nil {
+				rs[i].Res = append(rs[i].Res, int32(rt))
+				rs[i].Errnos = append(rs[i].Errnos, int32(errno))
+			} else {
+				// nil(nil), executor stops early
+				break
 			}
-			rs[i].Res = append(rs[i].Res, int32(rt))
-			rs[i].Errnos = append(rs[i].Errnos, int32(errno))
 		}
 		i++
 

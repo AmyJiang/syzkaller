@@ -275,7 +275,7 @@ func (env *Env) Exec(p *prog.Prog, cover, dedup, needFsState bool, rootDir strin
 			return
 		}
 		if needFsState {
-			r.FS = env.cmds[rootDir].dir
+			r.FS = rootDir // env.cmds[rootDir].dir
 		}
 	}
 
