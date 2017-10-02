@@ -280,7 +280,7 @@ func (mgr *Manager) httpDiff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var err error
-	data.Diffs, err = collectDiffs(mgr.cfg.Workdir)
+	data.Diffs, err = collectDiffs(mgr.cfg.Workdir, mgr.cfg.Retvals)
 	sort.Sort(UIDiffArray(data.Diffs))
 
 	if err != nil {
@@ -316,7 +316,7 @@ func (mgr *Manager) httpDiffSum() ([]*UIDiffType, []string, error) {
 	return diffs, mgr.failedDiffs, nil
 }
 
-func collectDiffs(workdir string) ([]*UIDiff, error) {
+func collectDiffs(workdir string, retvals bool) ([]*UIDiff, error) {
 	diffdir := filepath.Join(workdir, "logs")
 	dirs, err := readdirnames(diffdir)
 	if err != nil {
@@ -341,7 +341,7 @@ func collectDiffs(workdir string) ([]*UIDiff, error) {
 		d := &UIDiff{
 			Log:    filepath.Join("logs", fname),
 			Name:   minProg.String(),
-			Deltas: diff.Difference(rs, prog, diff.DiffTypes, true),
+			Deltas: diff.Difference(rs, prog, diff.DiffTypes, retvals),
 		}
 		diffs = append(diffs, d)
 	}
