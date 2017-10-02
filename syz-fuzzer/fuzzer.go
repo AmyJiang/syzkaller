@@ -49,6 +49,7 @@ var (
 	flagFS       = flag.String("rootdirs", "", "colon-separated list of rootdirs")
 	flagState    = flag.Bool("state", false, "enable guidance by new states")
 	flagRetvals  = flag.Bool("ret", true, "check return values for discrepancy")
+	flagMultiusr = flag.Bool("mu", true, "test for 2-user scenario")
 )
 
 const (
@@ -337,7 +338,7 @@ func main() {
 					p := corpus[rnd.Intn(len(corpus))].Clone()
 					corpusMu.RUnlock()
 					atomic.AddUint64(&statFuzz, 1)
-					p.Mutate(rs, programLength, ct, corpus)
+					p.Mutate(rs, programLength, ct, corpus, *flagMultiusr)
 					if len(p.Calls) == 0 || prog.Blacklist(p) {
 						continue
 					}
@@ -680,7 +681,6 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	info, states := execute1(pid, env, p, stat, needCover, true)
 
 	if diff.CheckHash(states) || (*flagRetvals && diff.CheckReturns(states)) {
-		// TODO: fix
 		delta := diff.Hash(diff.Difference(states, p, diff.DiffTypes, *flagRetvals))
 		diffMu.RLock()
 		if _, ok := diffHashes[delta]; !ok {
