@@ -21,7 +21,7 @@ func TestAssignSizeRandom(t *testing.T) {
 			t.Fatalf("different lens assigned, initial: %v, new: %v", data0, data1)
 		}
 		for try := 0; try <= 10; try++ {
-			p.Mutate(rs, 10, nil, nil)
+			p.Mutate(rs, 10, nil, nil, true)
 			data0 := p.Serialize()
 			for _, call := range p.Calls {
 				assignSizesCall(call)

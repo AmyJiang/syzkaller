@@ -25,7 +25,7 @@ func callsByUser1(p *Prog) []int {
 	return calls_idx
 }
 
-func (p *Prog) Mutate(rs rand.Source, ncalls int, ct *ChoiceTable, corpus []*Prog) {
+func (p *Prog) Mutate(rs rand.Source, ncalls int, ct *ChoiceTable, corpus []*Prog, mutateUser bool) {
 	r := newRand(rs)
 
 	retry := false
@@ -60,7 +60,7 @@ func (p *Prog) Mutate(rs rand.Source, ncalls int, ct *ChoiceTable, corpus []*Pro
 			s := analyze(ct, p, c)
 			calls := r.generateCall(s, p)
 			p.insertBefore(c, calls)
-		case len(user1Calls) > 0 && r.nOutOf(3, 10):
+		case mutateUser && len(user1Calls) > 0 && r.nOutOf(3, 10):
 			// FIXME: remove repetition
 			// change uid of a random call
 			idx := r.Intn(len(user1Calls))

@@ -210,7 +210,7 @@ func TestChecksumCalcRandom(t *testing.T) {
 			calcChecksumsCall(call, i%32)
 		}
 		for try := 0; try <= 10; try++ {
-			p.Mutate(rs, 10, nil, nil)
+			p.Mutate(rs, 10, nil, nil, false)
 			for _, call := range p.Calls {
 				calcChecksumsCall(call, i%32)
 			}
