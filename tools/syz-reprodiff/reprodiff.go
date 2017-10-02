@@ -24,7 +24,7 @@ var (
 	flagProgDir  = flag.String("dir", "", "directory of programs to reproduce")
 	flagMinimize = flag.Bool("min", false, "minimize input program")
 	flagSaveDir  = flag.Bool("save", false, "save working directory")
-	flagRetvals  = flag.Bool("ret", true, "check difference in return values")
+	flagRetvals  = flag.Bool("ret", false, "check difference in return values")
 	testfs       []string
 	dbgFile      *os.File
 	logFile      *os.File

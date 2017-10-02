@@ -48,8 +48,8 @@ var (
 	flagPprof    = flag.String("pprof", "", "address to serve pprof profiles")
 	flagFS       = flag.String("rootdirs", "", "colon-separated list of rootdirs")
 	flagState    = flag.Bool("state", false, "enable guidance by new states")
-	flagRetvals  = flag.Bool("ret", true, "check return values for discrepancy")
-	flagMultiusr = flag.Bool("mu", true, "test for 2-user scenario")
+	flagRetvals  = flag.Bool("ret", false, "check return values for discrepancy")
+	flagMultiusr = flag.Bool("mu", false, "test for 2-user scenario")
 )
 
 const (

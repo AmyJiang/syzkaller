@@ -77,6 +77,10 @@ type Config struct {
 	// Implementation details beyond this point.
 	ParsedSuppressions []*regexp.Regexp `json:"-"`
 	ParsedIgnores      []*regexp.Regexp `json:"-"`
+
+	// Experimental flags for SyzkallerDiff
+	Multiusr bool
+	Retvals  bool
 }
 
 func Parse(filename string) (*Config, map[int]bool, error) {
@@ -102,6 +106,10 @@ func parse(data []byte) (*Config, map[int]bool, error) {
 	cfg.Cover = true
 	cfg.Reproduce = true
 	cfg.Sandbox = "setuid"
+
+	cfg.Retvals = false // experimental flags
+	cfg.Multiusr = false
+
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, nil, fmt.Errorf("failed to parse config file: %v", err)
 	}
