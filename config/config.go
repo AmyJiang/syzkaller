@@ -423,6 +423,8 @@ func checkUnknownFields(data []byte) (string, error) {
 		"Odroid_Hub_Bus",
 		"Odroid_Hub_Device",
 		"Odroid_Hub_Port",
+		"Multiusr",
+		"Retvals",
 	}
 	f := make(map[string]interface{})
 	if err := json.Unmarshal(data, &f); err != nil {
