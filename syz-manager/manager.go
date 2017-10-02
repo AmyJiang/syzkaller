@@ -247,8 +247,8 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 			mgr.fuzzingTime += diff * time.Duration(atomic.LoadUint32(&mgr.numFuzzing))
 			executed := mgr.stats["exec total"]
 			crashes := mgr.stats["crashes"]
-			diffs := mgr.stats["diffs"]
-			udiffs := mgr.stats["unique diffs"]
+			diffs := mgr.stats["manager new diffs"]
+			udiffs := mgr.stats["manager unique diffs"]
 			mgr.mu.Unlock()
 			Logf(0, "executed programs: %v, crashes: %v, diffs: %v (%v)", executed, crashes, diffs, udiffs)
 		}
@@ -500,13 +500,13 @@ func (mgr *Manager) saveDiff(res *diff.DiffRepro) {
 	defer mgr.mu.Unlock()
 
 	if len(mgr.uniqueDiffs[name]) == 0 {
-		mgr.stats["unique diffs"]++
+		mgr.stats["manager unique diffs"]++
 		Logf(0, "[NEW] diff: %s", name)
 	}
 
 	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(res.Log))
 	if !prog.IsSingleUser(res.MinProg) {
-		mgr.stats["multiuser diffs"]++
+		mgr.stats["manager multiuser diffs"]++
 	}
 
 	mgr.diffDB.Save(hash.String(minProgStr), minProgStr, 0)
@@ -859,7 +859,7 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 		Fatalf("fuzzer %v is not connected", a.Name)
 	}
 
-	mgr.stats["diffs"]++
+	mgr.stats["manager new diffs"]++
 	sig := hash.String(a.Prog)
 	mgr.diffDB.Save(sig, a.Prog, 0)
 	if err := mgr.diffDB.Flush(); err != nil {
