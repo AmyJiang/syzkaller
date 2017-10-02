@@ -24,6 +24,7 @@ var (
 	flagProgDir  = flag.String("dir", "", "directory of programs to reproduce")
 	flagMinimize = flag.Bool("min", false, "minimize input program")
 	flagSaveDir  = flag.Bool("save", false, "save working directory")
+	flagRetvals  = flag.Bool("ret", true, "check difference in return values")
 	testfs       []string
 	dbgFile      *os.File
 	logFile      *os.File
@@ -252,7 +253,7 @@ func reproduce() error {
 		// Check for discrepancy in filesystem states and syscall return values
 		var diff_state, diff_return bool
 		diff_state = diff.CheckHash(rs)
-		diff_return = diff.CheckReturns(rs)
+		diff_return = *flagRetvals && diff.CheckReturns(rs)
 		if !diff_state && !diff_return {
 			writeLog("## Failed to reproduce discrepancy\n")
 			Logf(0, "failed to reproduce discrepancy")

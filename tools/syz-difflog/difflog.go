@@ -38,9 +38,10 @@ func (a UIDiffArray) Less(i, j int) bool { return a[i].Name < a[j].Name }
 func (a UIDiffArray) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
 var (
-	flagDirs = flag.String("dirs", "./logs", "log directories separated by ;")
-	flagFS   = flag.String("testfs", "/testfs1:/testfs2", "testfs separated by :")
-	flagHttp = flag.String("http", ":9999", "TCP address to start http page")
+	flagDirs    = flag.String("dirs", "./logs", "log directories separated by ;")
+	flagFS      = flag.String("testfs", "/testfs1:/testfs2", "testfs separated by :")
+	flagHttp    = flag.String("http", ":9999", "TCP address to start http page")
+	flagRetvals = flag.Bool("ret", true, "check return values for discrepancy")
 
 	logs        map[string]*log
 	filesystems []string
@@ -94,7 +95,7 @@ func httpDiff(w http.ResponseWriter, r *http.Request) {
 	for sig := range logs {
 		deltas := diff.Difference(logs[sig].rs, logs[sig].prog,
 			[]string{"Name", "Mode", "Uid", "Size", "Link"}, // Dont test Gid for linux vs FreeBSD
-			true)
+			*flagRetvals)
 		if !diff.HasDifference(deltas) {
 			continue
 		}
