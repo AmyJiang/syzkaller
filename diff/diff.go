@@ -2,11 +2,12 @@ package diff
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"reflect"
-	"sort"
 
 	"github.com/google/syzkaller/prog"
+	"strings"
 )
 
 // ExecResult holds the execution result of one test fs
@@ -103,18 +104,8 @@ func firstDiffRet(p *prog.Prog, rs []*ExecResult) int {
 }
 
 func Hash(delta map[string]string) string {
-	var keys []string
-	for k := range delta {
-		keys = append(keys, k)
-	}
-
-	sort.Strings(keys)
-
-	d := ""
-	for _, k := range keys {
-		d += k + ":" + delta[k] + "\n"
-	}
-	return d
+	data, _ := json.Marshal(delta)
+	return string(data)
 }
 
 // Difference returns a summary of discrepancies in filesystem ExecResults.
@@ -142,13 +133,13 @@ func Difference(rs []*ExecResult, p *prog.Prog, diffFields []string, checkReturn
 
 		if call != -1 {
 			if len(r.Res) > call && len(r.Errnos) > call {
-				d += fmt.Sprintf("\n%s(errno %d)", p.Calls[call].Meta.Name, r.Errnos[call])
+				d += fmt.Sprintf("%s(errno %d)", p.Calls[call].Meta.Name, r.Errnos[call])
 				// d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
 			} else {
-				d += fmt.Sprintf("\n%s()=nil(nil)", p.Calls[call].Meta.Name)
+				d += fmt.Sprintf("%s()=nil(nil)", p.Calls[call].Meta.Name)
 			}
 		}
-		delta[r.FS] = d
+		delta[r.FS] = strings.TrimSpace(d)
 	}
 	return delta
 }

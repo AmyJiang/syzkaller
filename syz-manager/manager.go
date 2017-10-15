@@ -291,7 +291,8 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 		}()
 	}
 
-	mgr.diffRecord, err = os.OpenFile("Differences.txt", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
+	mgr.diffRecord, err = os.OpenFile(filepath.Join(cfg.Workdir, "Differences.txt"),
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
 	if err != nil {
 		Fatalf("failed to open diff record: %v", err)
 	}
@@ -500,8 +501,6 @@ func (mgr *Manager) saveDiff(res *diff.DiffRepro) {
 	}
 
 	name := res.MinProg.String()
-	minProgStr := res.MinProg.Serialize()
-
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -513,11 +512,6 @@ func (mgr *Manager) saveDiff(res *diff.DiffRepro) {
 	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(res.Log))
 	if !prog.IsSingleUser(res.MinProg) {
 		mgr.stats["manager multiuser diffs"]++
-	}
-
-	mgr.diffDB.Save(hash.String(minProgStr), minProgStr, 0)
-	if err := mgr.diffDB.Flush(); err != nil {
-		Logf(0, "failed to save minimized diff database: %v", err)
 	}
 }
 
@@ -873,8 +867,13 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	}
 	Logf(0, "saved new diff to %v", sig)
 
-    argstr := fmt.Sprintf("{sig:%s\ndiff:%s}\n", sig, a.Difference)
-	if _, err := mgr.diffRecord.WriteString(argstr); err != nil {
+	var difference map[string]string
+	if err := json.Unmarshal([]byte(a.Difference), &difference); err != nil {
+		Logf(0, "failed to unmarshal difference: %v", err)
+	}
+	difference["sig"] = sig
+	argstr, _ := json.Marshal(difference)
+	if _, err := mgr.diffRecord.Write(argstr); err != nil {
 		Fatalf("failed to record new difference args")
 	}
 	mgr.mu.Unlock()
