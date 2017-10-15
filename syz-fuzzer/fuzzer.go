@@ -654,13 +654,14 @@ func triageInputByState(pid int, env *ipc.Env, inp InputState) {
 	corpusMu.Unlock()
 }
 
-func reportDiff(p *prog.Prog) {
+func reportDiff(p *prog.Prog, diff string) {
 	// report a new diff-inducing program
 	atomic.AddUint64(&statNewDiff, 1)
 	Logf(1, "reporting new diff from %v: %s", *flagName, p)
 	a := &NewDiffArgs{
-		Name: *flagName,
-		Prog: p.Serialize(),
+		Name:       *flagName,
+		Prog:       p.Serialize(),
+		Difference: diff,
 	}
 
 	try := 0
@@ -688,7 +689,7 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 			diffMu.Lock()
 			diffHashes[delta] = struct{}{}
 			diffMu.Unlock()
-			reportDiff(p)
+			reportDiff(p, delta)
 		} else {
 			diffMu.RUnlock()
 		}

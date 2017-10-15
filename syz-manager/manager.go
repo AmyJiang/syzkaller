@@ -54,6 +54,7 @@ type Manager struct {
 	port         int
 	corpusDB     *db.DB
 	diffDB       *db.DB
+	diffRecord   *os.File
 	startTime    time.Time
 	firstConnect time.Time
 	lastPrioCalc time.Time
@@ -288,6 +289,11 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 				}
 			}
 		}()
+	}
+
+	mgr.diffRecord, err = os.OpenFile("Differences.txt", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
+	if err != nil {
+		Fatalf("failed to open diff record: %v", err)
 	}
 
 	if mgr.cfg.Hub_Addr != "" {
@@ -867,10 +873,13 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 	}
 	Logf(0, "saved new diff to %v", sig)
 
+    argstr := fmt.Sprintf("{sig:%s\ndiff:%s}\n", sig, a.Difference)
+	if _, err := mgr.diffRecord.WriteString(argstr); err != nil {
+		Fatalf("failed to record new difference args")
+	}
 	mgr.mu.Unlock()
 
 	mgr.diffs <- a.Prog
-
 	return nil
 }
 
