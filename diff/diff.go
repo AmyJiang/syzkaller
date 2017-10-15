@@ -41,9 +41,9 @@ func CheckHash(rs []*ExecResult) bool {
 // in two or more file systems.
 func CheckReturns(rs []*ExecResult) bool {
 	for i := 1; i < len(rs); i += 1 {
-		if !reflect.DeepEqual(rs[0].Res, rs[i].Res) {
-			return true
-		}
+		// if !reflect.DeepEqual(rs[0].Res, rs[i].Res) {
+		//	return true
+		// }
 		if !reflect.DeepEqual(rs[0].Errnos, rs[i].Errnos) {
 			return true
 		}
