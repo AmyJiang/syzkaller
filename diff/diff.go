@@ -93,8 +93,8 @@ func firstDiffRet(p *prog.Prog, rs []*ExecResult) int {
 			if len(r.Res) <= i || len(r.Errnos) <= i {
 				return i
 			}
-			//			if r.Errnos[i] != rs[0].Errnos[i] {
-			if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
+			if r.Errnos[i] != rs[0].Errnos[i] {
+				// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
 				return i
 			}
 		}
@@ -142,7 +142,8 @@ func Difference(rs []*ExecResult, p *prog.Prog, diffFields []string, checkReturn
 
 		if call != -1 {
 			if len(r.Res) > call && len(r.Errnos) > call {
-				d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
+				d += fmt.Sprintf("\n%s(errno %d)", p.Calls[call].Meta.Name, r.Errnos[call])
+				// d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
 			} else {
 				d += fmt.Sprintf("\n%s()=nil(nil)", p.Calls[call].Meta.Name)
 			}
