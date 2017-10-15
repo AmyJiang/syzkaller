@@ -266,11 +266,10 @@ func reproduce() error {
 		}
 
 		var p1 *prog.Prog
-		var d map[string]string
 		// Minimize the program while keeping all original discrepancies
 		// in filesystem states
 		Logf(0, "diff_state:%v diff_return:%v", diff_state, diff_return)
-		d = diff.Hash(diff.Difference(rs, p, diff.DiffTypes, !diff_state))
+		d := diff.Hash(diff.Difference(rs, p, diff.DiffTypes, !diff_state))
 		Logf(0, "Original Difference: %s", d)
 		p1, _ = prog.Minimize(p, -1, func(p1 *prog.Prog, call1 int) bool {
 			if len(p1.Calls) == 0 {
