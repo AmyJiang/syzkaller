@@ -812,7 +812,7 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
 	<tr>
 		<th>Log</th>
         <th>Name</th>
-        {{range $k :== $.DiffKeys}}
+        {{range $k := $.DiffKeys}}
         <th>{{$k}}</th>
         {{end}}
 	</tr>
