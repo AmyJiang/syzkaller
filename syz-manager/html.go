@@ -276,7 +276,14 @@ func (mgr *Manager) httpReport(w http.ResponseWriter, r *http.Request) {
 
 func (mgr *Manager) httpDiff(w http.ResponseWriter, r *http.Request) {
 	data := &UIDiffs{
-		Filesystems: mgr.cfg.Filesystems,
+		DiffKeys: []string{},
+	}
+
+	l := len(mgr.cfg.Filesystems)
+	for i := 0; i < l; i++ {
+		for j := i + 1; j < l; j++ {
+			data.DiffKeys = append(data.DiffKeys, fmt.Sprintf("%s-%s", mgr.cfg.Filesystems[i], mgr.cfg.Filesystems[j]))
+		}
 	}
 
 	var err error
@@ -510,8 +517,8 @@ type UIDiff struct {
 }
 
 type UIDiffs struct {
-	Filesystems []string
-	Diffs       []*UIDiff
+	DiffKeys []string
+	Diffs    []*UIDiff
 }
 
 type UIStat struct {
@@ -805,16 +812,16 @@ var diffTemplate = template.Must(template.New("").Parse(addStyle(`
 	<tr>
 		<th>Log</th>
         <th>Name</th>
-        {{range $fs := $.Filesystems}}
-        <th>{{$fs}}</th>
+        {{range $k :== $.DiffKeys}}
+        <th>{{$k}}</th>
         {{end}}
 	</tr>
 	{{range $d := $.Diffs}}
 	<tr>
 		<td><a href="/file?name={{$d.Log}}">{{$d.Log}}</a></td>
         <td>{{$d.Name}}</td>
-        {{range $fs := $.Filesystems}}
-        <td>{{index $d.Deltas $fs}}</td>
+        {{range $k := $.DiffKeys}}
+        <td>{{index $d.Deltas $k}}</td>
 		{{end}}
 	</tr>
 	{{end}}

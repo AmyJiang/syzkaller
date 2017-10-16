@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/google/syzkaller/prog"
+	"sort"
 	"strings"
 )
 
@@ -88,60 +89,59 @@ func diffState(s0 []byte, s1 []byte, diffFields []string) string {
 	return diff
 }
 
-func firstDiffRet(p *prog.Prog, rs []*ExecResult) int {
-	for i := 0; i < len(rs[0].Res); i++ {
-		for _, r := range rs[1:] {
-			if len(r.Res) <= i || len(r.Errnos) <= i {
-				return i
-			}
-			if r.Errnos[i] != rs[0].Errnos[i] {
-				// if r.Res[i] != rs[0].Res[i] || r.Errnos[i] != rs[0].Errnos[i] {
-				return i
-			}
+func diffErrno(p *prog.Prog, err1 []int32, err2 []int32) string {
+	for i, e1 := range err1 {
+		if len(err2) <= i {
+			return fmt.Sprintf("%s(%d-nil)", p.Calls[i].Meta.Name, e1)
+		}
+		if err2[i] != e1 {
+			return fmt.Sprintf("%s(%d-%d)", p.Calls[i].Meta.Name, e1, err2[i])
 		}
 	}
-	return -1
-}
-
-func Hash(delta map[string]string) string {
-	data, _ := json.Marshal(delta)
-	return string(data)
+	if len(err1) < len(err2) {
+		return fmt.Sprintf("%s(nil-%d)", p.Calls[len(err1)].Meta.Name, err2[len(err1)])
+	}
+	return ""
 }
 
 // Difference returns a summary of discrepancies in filesystem ExecResults.
 func Difference(rs []*ExecResult, p *prog.Prog, diffFields []string, checkReturns bool) map[string]string {
-	delta := make(map[string]string)
-	call := -1
-	if checkReturns == true {
-		call = firstDiffRet(p, rs)
-	}
-
-	ref := 0
-	for i, r := range rs {
-		if r.FS == "/testfs1" {
-			// TODO: possible not to hard-code?
-			ref = i
-			break
-		}
-	}
-
-	for i, r := range rs {
-		d := ""
-		if i != ref { // use rs[ref] as oracle
-			d = diffState(rs[ref].State, rs[i].State, diffFields)
-		}
-
-		if call != -1 {
-			if len(r.Res) > call && len(r.Errnos) > call {
-				d += fmt.Sprintf("%s(errno %d)", p.Calls[call].Meta.Name, r.Errnos[call])
-				// d += fmt.Sprintf("\n%s()=%d(%d)", p.Calls[call].Meta.Name, r.Res[call], r.Errnos[call])
-			} else {
-				d += fmt.Sprintf("%s()=nil(nil)", p.Calls[call].Meta.Name)
+	difference := make(map[string]string)
+	l := len(rs)
+	for i := 0; i < l; i++ {
+		for j := i + 1; j < l; j++ {
+			k := rs[i].FS + "-" + rs[j].FS
+			d := diffState(rs[i].State, rs[j].State, diffFields)
+			if checkReturns {
+				d += diffErrno(p, rs[i].Errnos, rs[j].Errnos)
 			}
+			difference[k] = strings.TrimSpace(d)
 		}
-		delta[r.FS] = strings.TrimSpace(d)
 	}
-	return delta
+	return difference
+}
+
+func Hash(delta map[string]string) string {
+	var keys []string
+	for k := range delta {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var buf bytes.Buffer
+	buf.WriteString("{")
+	for i, k := range keys {
+		if i != 0 {
+			buf.WriteString(",")
+		}
+		key, _ := json.Marshal(k)
+		buf.Write(key)
+		buf.WriteString(":")
+		val, _ := json.Marshal(delta[k])
+		buf.Write(val)
+	}
+	buf.WriteString("}")
+	return string(buf.Bytes())
 }
 
 func HasDifference(delta map[string]string) bool {
@@ -151,24 +151,4 @@ func HasDifference(delta map[string]string) bool {
 		}
 	}
 	return false
-}
-
-// GroupResults assigns same group numbers to identical ExecResults.
-func GroupResults(rs []*ExecResult) (groups []int) {
-	group_id := make(map[string]int)
-	for i, r := range rs {
-		hash := string(r.StateHash[:])
-		if i == 0 {
-			groups = append(groups, 0)
-			group_id[hash] = 0
-		} else {
-			if id, ok := group_id[hash]; ok {
-				groups = append(groups, id)
-			} else {
-				groups = append(groups, i)
-				group_id[hash] = i
-			}
-		}
-	}
-	return
 }
