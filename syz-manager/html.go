@@ -60,7 +60,7 @@ func (mgr *Manager) httpSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if data.Diffs, data.FailedDiffs, err = mgr.httpDiffSum(); err != nil {
+	if data.FailedDiffs, err = mgr.httpDiffSum(); err != nil {
 		http.Error(w, fmt.Sprintf("failed to collect diffs: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -300,27 +300,12 @@ func (mgr *Manager) httpDiff(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (mgr *Manager) httpDiffSum() ([]*UIDiffType, []string, error) {
+func (mgr *Manager) httpDiffSum() ([]string, error) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	var diffs []*UIDiffType
-
-	var keys []string
-	for k := range mgr.uniqueDiffs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		diff := &UIDiffType{
-			Name:  k,
-			Count: len(mgr.uniqueDiffs[k]),
-			Logs:  mgr.uniqueDiffs[k],
-		}
-		diffs = append(diffs, diff)
-	}
-
-	return diffs, mgr.failedDiffs, nil
+	failedDiffs := append([]string{}, mgr.failedDiffs...)
+	return failedDiffs, nil
 }
 
 func collectDiffs(workdir string, retvals bool) ([]*UIDiff, error) {
@@ -481,7 +466,6 @@ type UISummaryData struct {
 	Stats       []UIStat
 	Calls       []UICallType
 	Crashes     []*UICrashType
-	Diffs       []*UIDiffType
 	FailedDiffs []string
 	Log         string
 }
@@ -639,28 +623,6 @@ var summaryTemplate = template.Must(template.New("").Parse(addStyle(`
     {{end}}
 </table>
 <br>
-
-<table>
-	<caption>Unique Diffs:</caption>
-	<tr>
-		<th>Name</th>
-		<th>Count</th>
-		<th>Logs</th>
-	</tr>
-	{{range $d := $.Diffs}}
-	<tr>
-        <td>{{$d.Name}}</td>
-        <td>{{$d.Count}}</td>
-        <td>
-        {{range $l := $d.Logs}}
-        <p><a href="/file?name=logs/{{$l}}">{{$l}}</a></p>
-        {{end}}
-        </td>
-	</tr>
-	{{end}}
-</table>
-<br>
-
 
 <b>Log:</b>
 <br>
