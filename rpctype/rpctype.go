@@ -55,9 +55,9 @@ type PollRes struct {
 }
 
 type NewDiffArgs struct {
-	Name       string
-	Prog       []byte
-	Difference string
+	Name     string
+	Prog     []byte
+	DiffHash string
 }
 
 type HubConnectArgs struct {

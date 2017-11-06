@@ -54,7 +54,6 @@ type Manager struct {
 	port         int
 	corpusDB     *db.DB
 	diffDB       *db.DB
-	diffRecord   *os.File
 	startTime    time.Time
 	firstConnect time.Time
 	lastPrioCalc time.Time
@@ -79,14 +78,14 @@ type Manager struct {
 	maxSignal      map[uint32]struct{}
 	corpusCover    map[uint32]struct{}
 	prios          [][]float32
-	uniqueDiffs    map[string]([]string)
-	failedDiffs    []string
 
 	fuzzers   map[string]*Fuzzer
 	hub       *RpcClient
 	hubCorpus map[hash.Sig]bool
 
-	diffs chan []byte
+	diffs        map[string]struct{}
+	pendingDiffs chan []byte
+	failedDiffs  []string
 }
 
 type Fuzzer struct {
@@ -146,9 +145,9 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 		fuzzers:         make(map[string]*Fuzzer),
 		fresh:           true,
 		vmStop:          make(chan bool),
-		uniqueDiffs:     make(map[string][]string),
+		diffs:           make(map[string]struct{}),
+		pendingDiffs:    make(chan []byte, 10000),
 		failedDiffs:     []string{},
-		diffs:           make(chan []byte, 10000),
 	}
 
 	Logf(0, "loading corpus...")
@@ -249,9 +248,8 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 			executed := mgr.stats["exec total"]
 			crashes := mgr.stats["crashes"]
 			diffs := mgr.stats["manager new diffs"]
-			udiffs := mgr.stats["manager unique diffs"]
 			mgr.mu.Unlock()
-			Logf(0, "executed programs: %v, crashes: %v, diffs: %v (%v)", executed, crashes, diffs, udiffs)
+			Logf(0, "executed programs: %v, crashes: %v, diffs: %v", executed, crashes, diffs)
 		}
 	}()
 
@@ -289,12 +287,6 @@ func RunManager(cfg *config.Config, syscalls map[int]bool) {
 				}
 			}
 		}()
-	}
-
-	mgr.diffRecord, err = os.OpenFile(filepath.Join(cfg.Workdir, "Differences.txt"),
-		os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0640)
-	if err != nil {
-		Fatalf("failed to open diff record: %v", err)
 	}
 
 	if mgr.cfg.Hub_Addr != "" {
@@ -358,7 +350,7 @@ func (mgr *Manager) vmLoop() {
 	go func() {
 		var diffReproducer *diff.DiffReproducer
 		restartDiffVM := false
-		for p := range mgr.diffs {
+		for p := range mgr.pendingDiffs {
 			if diffReproducer == nil || restartDiffVM == true {
 				Logf(0, "diff: booting diff reproducer vm...")
 				var err error
@@ -381,7 +373,7 @@ func (mgr *Manager) vmLoop() {
 			res := diffReproducer.Repro(sig, p)
 			if res.Err != nil {
 				restartDiffVM = true
-				mgr.diffs <- p
+				mgr.pendingDiffs <- p
 			} else {
 				diffDone <- res
 			}
@@ -487,7 +479,7 @@ func (mgr *Manager) vmLoop() {
 		case <-shutdown:
 			Logf(1, "loop: shutting down...")
 			shutdown = nil
-			close(mgr.diffs)
+			close(mgr.pendingDiffs)
 		}
 	}
 }
@@ -495,21 +487,22 @@ func (mgr *Manager) vmLoop() {
 func (mgr *Manager) saveDiff(res *diff.DiffRepro) {
 	if res.Err != nil {
 		mgr.mu.Lock()
+		Logf(0, "failed to minimize diff %s: %v", filepath.Base(res.Log), res.Err)
 		mgr.failedDiffs = append(mgr.failedDiffs, filepath.Base(res.Log))
 		mgr.mu.Unlock()
 		return
 	}
 
-	name := res.MinProg.String()
+	minProg := res.MinProg.Serialize()
+	sig := hash.String(minProg)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	if len(mgr.uniqueDiffs[name]) == 0 {
-		mgr.stats["manager unique diffs"]++
-		Logf(0, "[NEW] diff: %s", name)
+	mgr.diffDB.Save(sig, minProg, 0)
+	if err := mgr.diffDB.Flush(); err != nil {
+		Fatalf("failed to save diff to database: %v", err)
 	}
 
-	mgr.uniqueDiffs[name] = append(mgr.uniqueDiffs[name], filepath.Base(res.Log))
 	if !prog.IsSingleUser(res.MinProg) {
 		mgr.stats["manager multiuser diffs"]++
 	}
@@ -859,26 +852,20 @@ func (mgr *Manager) NewDiff(a *NewDiffArgs, r *int) error {
 		Fatalf("fuzzer %v is not connected", a.Name)
 	}
 
-	mgr.stats["manager new diffs"]++
-	sig := hash.String(a.Prog)
-	mgr.diffDB.Save(sig, a.Prog, 0)
-	if err := mgr.diffDB.Flush(); err != nil {
-		Logf(0, "failed to save diff database: %v", err)
+	if _, ok := mgr.diffs[a.DiffHash]; ok {
+		// Same difference found
+		mgr.mu.Unlock()
+		return nil
 	}
-	Logf(0, "saved new diff to %v", sig)
 
-	var difference map[string]string
-	if err := json.Unmarshal([]byte(a.Difference), &difference); err != nil {
-		Logf(0, "failed to unmarshal difference: %v", err)
-	}
-	difference["sig"] = sig
-	argstr, _ := json.Marshal(difference)
-	if _, err := mgr.diffRecord.Write(argstr); err != nil {
-		Fatalf("failed to record new difference args")
-	}
+	mgr.stats["manager new diffs"]++
+	mgr.diffs[a.DiffHash] = struct{}{}
+	Logf(2, "saved new diff %s", a.DiffHash)
+
 	mgr.mu.Unlock()
 
-	mgr.diffs <- a.Prog
+	mgr.pendingDiffs <- a.Prog
+
 	return nil
 }
 

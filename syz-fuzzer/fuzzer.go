@@ -654,27 +654,18 @@ func triageInputByState(pid int, env *ipc.Env, inp InputState) {
 	corpusMu.Unlock()
 }
 
-func reportDiff(p *prog.Prog, diff string) {
+func reportDiff(p *prog.Prog, diffHash string) {
 	// report a new diff-inducing program
 	atomic.AddUint64(&statNewDiff, 1)
 	Logf(1, "reporting new diff from %v: %s", *flagName, p)
 	a := &NewDiffArgs{
-		Name:       *flagName,
-		Prog:       p.Serialize(),
-		Difference: diff,
+		Name:     *flagName,
+		Prog:     p.Serialize(),
+		DiffHash: diffHash,
 	}
 
-	try := 0
-	var err error
-retry:
-	if try >= 3 {
+	if err := manager.Call("Manager.NewDiff", a, nil); err != nil {
 		panic(err)
-	}
-	err = manager.Call("Manager.NewDiff", a, nil)
-	if err != nil {
-		Logf(0, "failed to report new diff:err=%s try=%v", err, try)
-		try += 1
-		goto retry
 	}
 }
 
@@ -682,14 +673,14 @@ func execute(pid int, env *ipc.Env, p *prog.Prog, needCover, minimized, candidat
 	info, states := execute1(pid, env, p, stat, needCover, true)
 
 	if diff.CheckHash(states) || (*flagRetvals && diff.CheckReturns(states)) {
-		delta := diff.Hash(diff.Difference(states, p, diff.DiffTypes, *flagRetvals))
+		dh := diff.Hash(diff.Difference(states, p, diff.DiffTypes, *flagRetvals))
 		diffMu.RLock()
-		if _, ok := diffHashes[delta]; !ok {
+		if _, ok := diffHashes[dh]; !ok {
 			diffMu.RUnlock()
 			diffMu.Lock()
-			diffHashes[delta] = struct{}{}
+			diffHashes[dh] = struct{}{}
 			diffMu.Unlock()
-			reportDiff(p, delta)
+			reportDiff(p, dh)
 		} else {
 			diffMu.RUnlock()
 		}
